@@ -1,3 +1,10 @@
+oscillatord (3.9.2) unstable; urgency=medium
+
+  * mro50: configure serial port explicitly.
+  * fix set_rtcm_output to avoid receiver restart.
+
+ -- Nicolas Bourdaud <nicolas.bourdaud@fr.nav-timing.safrangroup.com>  Thu, 21 May 2026 15:22:22 +0200
+
 oscillatord (3.9.1) unstable; urgency=medium
 
   * Add recent ubloxcfg compatibility.
