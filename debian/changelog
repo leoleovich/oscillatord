@@ -1,3 +1,9 @@
+oscillatord (3.9.3) unstable; urgency=medium
+
+  * Forward raw observations and ephemeris over the RTCM socket.
+
+ -- Nicolas Bourdaud <nicolas.bourdaud@fr.nav-timing.safrangroup.com>  Wed, 03 Jun 2026 17:48:13 +0200
+
 oscillatord (3.9.2) unstable; urgency=medium
 
   * mro50: configure serial port explicitly.
