@@ -489,11 +489,13 @@ static bool set_cable_delay(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, con
 }
 
 /**
- * @brief Patch RTCM message rates and UART1 output protocol in the config array.
+ * @brief Patch RTCM/raw message rates and UART1 output protocol in the config array.
  *
- * When gnss-rtcm-enabled=true, sets RTCM UART1 message rates to 1 and enables
- * the RTCM3 output protocol on UART1 in the reference config array so the
- * comparison against the receiver's current config will match.
+ * When gnss-rtcm-enabled=true, sets the RTCM UART1 message rates, the raw
+ * UBX-RXM-RAWX / UBX-RXM-SFRBX rates, and the RTCM3 output protocol to their
+ * enabled values in the reference config array, so the comparison against the
+ * receiver's current config matches and the receiver is not hard-reset on
+ * every restart.
  */
 static bool set_rtcm_output(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, const struct config* config)
 {
@@ -525,6 +527,27 @@ static bool set_rtcm_output(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, con
 		if (pair->id == UBLOXCFG_CFG_UART1OUTPROT_RTCM3X_ID) {
 			pair->val.L = true;
 			break;
+		}
+	}
+
+	/* UBX-RXM-RAWX and UBX-RXM-SFRBX are enabled on UART1 at runtime by
+	 * gnss_set_rtcm_config(). Reflect them in the reference config too, so the
+	 * RAM-config comparison matches and the receiver is not hard-reset on every
+	 * restart (same reasoning as the RTCM rates above). */
+	static const char* ubx_raw_msgs[] = {
+		"UBX-RXM-RAWX",
+		"UBX-RXM-SFRBX",
+	};
+	for (int i = 0; i < (int)ARRAY_SIZE(ubx_raw_msgs); i++) {
+		const UBLOXCFG_MSGRATE_t* items = ubloxcfg_getMsgRateCfg(ubx_raw_msgs[i]);
+		if (items == NULL || items->itemUart1 == NULL)
+			continue;
+		UBLOXCFG_KEYVAL_t* p = keyValuePairs + length;
+		while (p --> keyValuePairs) {
+			if (p->id == items->itemUart1->id) {
+				p->val.U1 = 1;
+				break;
+			}
 		}
 	}
 
@@ -586,12 +609,33 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 	return true;
 }
 
+/* Enable a UBX message at rate 1 on UART1. Used to add raw observation and
+ * navigation messages to the RTCM base-station output. */
+static void gnss_enable_ubx_uart1(RX_t *rx, const char *msgName)
+{
+	const UBLOXCFG_MSGRATE_t *items = ubloxcfg_getMsgRateCfg(msgName);
+	if (items == NULL || items->itemUart1 == NULL) {
+		log_warn("%s not supported by receiver, skipping", msgName);
+		return;
+	}
+	UBLOXCFG_KEYVAL_t kv;
+	kv.id = items->itemUart1->id;
+	kv.val.U1 = 1;
+	if (!rxSetConfig(rx, &kv, 1, true, true, true))
+		log_warn("Failed to enable %s on UART1", msgName);
+	else
+		log_info("%s enabled on UART1", msgName);
+}
+
 /**
  * @brief Enable RTCM3 output on UART1 for NTRIP base station use.
  *
  * Enables RTCM3 output protocol and configures messages 1005, 1077,
- * 1087, 1097, 1127, 1230 at rate=1 on UART1. The RTCM frames are
- * multiplexed with UBX on the same port and separated by the parser.
+ * 1087, 1097, 1127, 1230 at rate=1 on UART1. Also enables UBX-RXM-RAWX
+ * (raw observations) and UBX-RXM-SFRBX (raw navigation subframes) so an
+ * external NTRIP client can build MSM observations and broadcast ephemeris.
+ * The frames are multiplexed with UBX on the same port and separated by
+ * the parser.
  */
 static bool gnss_set_rtcm_config(RX_t *rx)
 {
@@ -627,6 +671,12 @@ static bool gnss_set_rtcm_config(RX_t *rx)
 		log_error("Failed to apply RTCM configuration");
 		return false;
 	}
+
+	/* Raw observations (RXM-RAWX) and navigation subframes (RXM-SFRBX) let an
+	 * external NTRIP client generate MSM observations and broadcast ephemeris
+	 * (RTCM 1019/1020/1042/1046), which casters need to compute a position. */
+	gnss_enable_ubx_uart1(rx, "UBX-RXM-RAWX");
+	gnss_enable_ubx_uart1(rx, "UBX-RXM-SFRBX");
 
 	log_info("RTCM3 output enabled on UART1 (%d messages configured)", nKv - 1);
 	return true;
@@ -1060,6 +1110,22 @@ static bool reset_serial(RX_t* rx)
 	return false;
 }
 
+/* True for messages an external NTRIP client needs forwarded over the socket:
+ * RTCM3 (native MSM + station/bias), plus raw observations (UBX-RXM-RAWX) and
+ * navigation subframes (UBX-RXM-SFRBX, used to build broadcast ephemeris). */
+static bool gnss_rtcm_forward_msg(const PARSER_MSG_t *msg)
+{
+	if (msg->type == PARSER_MSGTYPE_RTCM3)
+		return true;
+	if (msg->type == PARSER_MSGTYPE_UBX) {
+		uint8_t clsId = UBX_CLSID(msg->data);
+		uint8_t msgId = UBX_MSGID(msg->data);
+		/* RXM-RAWX (0x02 0x15) and RXM-SFRBX (0x02 0x13) */
+		return clsId == 0x02 && (msgId == 0x15 || msgId == 0x13);
+	}
+	return false;
+}
+
 /**
  * @brief Thread routine
  *
@@ -1089,8 +1155,9 @@ static void * gnss_thread(void * p_data)
 		PARSER_MSG_t *msg = rxGetNextMessageTimeout(gnss->rx, GNSS_TIMEOUT_MS);
 		if (msg != NULL)
 		{
-			/* Forward RTCM3 frames to socket client if connected */
-			if (gnss->rtcm_enabled && msg->type == PARSER_MSGTYPE_RTCM3) {
+			/* Forward frames an external NTRIP client needs (RTCM3 plus raw
+			 * observation/navigation UBX messages) to the socket client. */
+			if (gnss->rtcm_enabled && gnss_rtcm_forward_msg(msg)) {
 				rtcm_msg_count++;
 				rtcm_byte_count += msg->size;
 				pthread_mutex_lock(&gnss->mutex_data);
