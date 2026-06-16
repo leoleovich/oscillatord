@@ -17,40 +17,70 @@
 bool check_gnss_config_in_ram(RX_t *rx, UBLOXCFG_KEYVAL_t *allKvCfg, int nAllKvCfg)
 {
     bool receiverconfigured = true;
+    const int batch_size = 64;
 
-    // Get current
-    const uint32_t keys[] = { UBX_CFG_VALGET_V0_ALL_WILDCARD };
-    UBLOXCFG_KEYVAL_t allKvRam[3000];
-    memset(allKvRam, 0, sizeof(allKvRam));
-    const int nAllKvRam = rxGetConfig(rx, UBLOXCFG_LAYER_RAM, keys, NUMOF(keys), allKvRam, NUMOF(allKvRam));
+    /* Read all config keys in batches of 64 */
+    UBLOXCFG_KEYVAL_t *kvRam = malloc(nAllKvCfg * sizeof(UBLOXCFG_KEYVAL_t));
+    if (!kvRam) {
+        log_warn("malloc fail for RAM config");
+        return false;
+    }
+    int totalRam = 0;
 
-    // Check all items from config file
+    for (int offset = 0; offset < nAllKvCfg; offset += batch_size) {
+        int batch = nAllKvCfg - offset;
+        if (batch > batch_size) batch = batch_size;
+
+        uint32_t keys[64];
+        for (int i = 0; i < batch; i++)
+            keys[i] = allKvCfg[offset + i].id;
+
+        /* rxGetConfig needs maxKv >= received + 64 (library pre-checks space for next batch) */
+        UBLOXCFG_KEYVAL_t batchResult[128];
+        int n = rxGetConfig(rx, UBLOXCFG_LAYER_RAM, keys, batch, batchResult, 128);
+        if (n > 0) {
+            for (int i = 0; i < n && totalRam < nAllKvCfg; i++)
+                kvRam[totalRam++] = batchResult[i];
+        } else {
+            log_debug("Config read failed at offset=%d batch=%d", offset, batch);
+        }
+    }
+
+    log_info("Config read: %d/%d keys retrieved (batch_size=%d)", totalRam, nAllKvCfg, batch_size);
+
+    if (totalRam <= 0) {
+        log_warn("Could not read any config from receiver RAM");
+        free(kvRam);
+        return false;
+    }
+
+    // Compare config values
     for (int ixKvCfg = 0; ixKvCfg < nAllKvCfg; ixKvCfg++)
     {
         const UBLOXCFG_KEYVAL_t *kvCfg = &allKvCfg[ixKvCfg];
 
-        // Check current configuration
-        for (int ixKvRam = 0; ixKvRam < nAllKvRam; ixKvRam++)
+        for (int ixKvRam = 0; ixKvRam < totalRam; ixKvRam++)
         {
-            const UBLOXCFG_KEYVAL_t *kvRam = &allKvRam[ixKvRam];
-            if (kvRam->id == kvCfg->id)
+            if (kvRam[ixKvRam].id == kvCfg->id)
             {
-                if (kvRam->val._raw != kvCfg->val._raw)
+                if (kvRam[ixKvRam].val._raw != kvCfg->val._raw)
                 {
                     receiverconfigured = false;
                     char strCfg[UBLOXCFG_MAX_KEYVAL_STR_SIZE];
                     char strRam[UBLOXCFG_MAX_KEYVAL_STR_SIZE];
                     if (ubloxcfg_stringifyKeyVal(strCfg, sizeof(strCfg), kvCfg) &&
-                        ubloxcfg_stringifyKeyVal(strRam, sizeof(strRam), kvRam) )
+                        ubloxcfg_stringifyKeyVal(strRam, sizeof(strRam), &kvRam[ixKvRam]) )
                     {
                         log_debug("Config (%s) differs from current config (%s)", strCfg, strRam);
                     }
                 }
+                break;
             }
         }
     }
-    return receiverconfigured;
 
+    free(kvRam);
+    return receiverconfigured;
 }
 
 /* ****************************************************************************************************************** */
