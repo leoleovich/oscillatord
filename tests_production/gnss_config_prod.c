@@ -90,7 +90,7 @@ int main(int argc, char *argv[])
 
         /* Get configuration */
         int nAllKvCfg;
-        UBLOXCFG_KEYVAL_t *allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor);
+        UBLOXCFG_KEYVAL_t *allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, GNSS_BAND_L1 | GNSS_BAND_L2);
 
         log_info("Configuring receiver with ART parameters...");
         bool res = rxSetConfig(rx, allKvCfg, nAllKvCfg, true, true, true);

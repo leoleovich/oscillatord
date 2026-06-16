@@ -566,15 +566,33 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 	bool               receiver_configured = false;
 	int                tries               = 0;
 
-	// Get configuration
+	/* Track which signal bands are active */
+	bool band_l1  = true;  /* Always enabled */
+	bool band_l2  = true;  /* Default: L2 enabled */
+	bool band_l5  = false; /* Default: L5 disabled */
+
+	/* Detect L5 receiver: read GPS_L5_ENA (0x10310004) from RAM */
+	{
+		uint32_t l5_key = 0x10310004; /* CFG-SIGNAL-GPS_L5_ENA */
+		UBLOXCFG_KEYVAL_t l5_result[128];
+		int n = rxGetConfig(rx, UBLOXCFG_LAYER_RAM, &l5_key, 1, l5_result, 128);
+		if (n > 0 && l5_result[0].val.L) {
+			log_info("L5 receiver detected (F9T-10B), using L5 signal config");
+			band_l2 = false;
+			band_l5 = true;
+		}
+	}
+
+	// Get configuration for the detected receiver model
 	int nAllKvCfg;
-	UBLOXCFG_KEYVAL_t *allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor);
+	int bands = GNSS_BAND_L1 | (band_l5 ? GNSS_BAND_L5 : GNSS_BAND_L2);
+	UBLOXCFG_KEYVAL_t *allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, bands);
 
 	set_preferred_time_scale(allKvCfg, nAllKvCfg, config);
 	set_cable_delay(allKvCfg, nAllKvCfg, config);
 	set_rtcm_output(allKvCfg, nAllKvCfg, config);
 
-	/* Check if receiver is already configured */
+	/* Detect if receiver is already configured by reading current config */
 	receiver_configured = check_gnss_config_in_ram(rx, allKvCfg, nAllKvCfg);
 	if (receiver_configured)
 		log_info("Receiver already configured to desired configuration");
@@ -582,7 +600,8 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 		log_info("Receiver not configured to desired configuration, starting reconfiguration");
 
 	while (!receiver_configured) {
-		log_info("Configuring receiver with ART parameters...\n");
+		log_info("Configuring receiver with ART parameters (attempt %d/%d, %d keys)...",
+			tries + 1, GNSS_RECONFIGURE_MAX_TRY, nAllKvCfg);
 		bool res = rxSetConfig(rx, allKvCfg, nAllKvCfg, true, true, true);
 
 		if (res) {
@@ -594,6 +613,20 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 			}
 			log_info("hardware reset performed");
 			receiver_configured = true;
+		} else if (tries == 0 && !band_l5) {
+			/* First failure on undetected receiver: may be unconfigured L5.
+			 * Reload with L5 config and retry.
+			 */
+			log_warn("Config rejected (L2 keys unsupported?), retrying with L5 config");
+			free(allKvCfg);
+			band_l2 = false;
+			band_l5 = true;
+			allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, GNSS_BAND_L1 | GNSS_BAND_L5);
+			set_preferred_time_scale(allKvCfg, nAllKvCfg, config);
+			set_cable_delay(allKvCfg, nAllKvCfg, config);
+			set_rtcm_output(allKvCfg, nAllKvCfg, config);
+		} else {
+			log_warn("Config rejected on attempt %d/%d", tries + 1, GNSS_RECONFIGURE_MAX_TRY);
 		}
 
 		if (tries < GNSS_RECONFIGURE_MAX_TRY)
@@ -606,6 +639,13 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 		}
 	}
 	free(allKvCfg);
+
+	/* Log active signal bands */
+	log_info("Signal bands: L1=%s L2=%s L5=%s",
+		band_l1 ? "on" : "off",
+		band_l2 ? "on" : "off",
+		band_l5 ? "on" : "off");
+
 	return true;
 }
 
