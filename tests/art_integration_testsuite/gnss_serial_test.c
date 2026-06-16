@@ -65,7 +65,7 @@ bool test_gnss_serial(char* path) {
 
     // Get configuration
     int                nAllKvCfg;
-    UBLOXCFG_KEYVAL_t* allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor);
+    UBLOXCFG_KEYVAL_t* allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, GNSS_BAND_L1 | GNSS_BAND_L2);
 
     while (!(receiver_configured || rx_closed || rx_error || no_try)) {
         log_info("Configuring receiver with ART parameters...\n");

@@ -104,7 +104,7 @@ typedef struct IO_LINE_s
 
 static bool _cfgDbAdd(CFG_DB_t *db, IO_LINE_t *line);
 
-UBLOXCFG_KEYVAL_t *get_default_value_from_config(int *nKv, int major, int minor)
+UBLOXCFG_KEYVAL_t *get_default_value_from_config(int *nKv, int major, int minor, int bands)
 {
 	const int          kvSize = CFG_SET_MAX_KV * sizeof(UBLOXCFG_KEYVAL_t);
 	UBLOXCFG_KEYVAL_t* kv     = malloc(kvSize);
@@ -120,18 +120,24 @@ UBLOXCFG_KEYVAL_t *get_default_value_from_config(int *nKv, int major, int minor)
 	char     current_line[128] = {};
 
 	{
-		size_t config_length = default_configuration_size;
+		/* Select config array based on firmware version and band mask */
+		const char (*cfg_array)[128];
+		size_t config_length;
 
-		// If version >= to 2.20 apply 2.20 ubx config
-		if ((major == 2 && minor >= 20) || (major >= 3))
+		if (bands & GNSS_BAND_L5) {
+			cfg_array = default_configuration_f9t_10b;
+			config_length = default_configuration_f9t_10b_size;
+		} else if ((major == 2 && minor >= 20) || (major >= 3)) {
+			cfg_array = default_configuration_v220;
 			config_length = default_configuration_v220_size;
+		} else {
+			cfg_array = default_configuration;
+			config_length = default_configuration_size;
+		}
 
 		for (size_t i = 0; i < config_length; i++)
 		{
-			if ((major == 2 && minor >= 20) || (major >= 3))
-				strncpy(current_line, default_configuration_v220[i], 127);
-			else
-				strncpy(current_line, default_configuration[i], 127);
+			strncpy(current_line, cfg_array[i], 127);
 			IO_LINE_t line = { .line = current_line };
 
 			if (!_cfgDbAdd(&db, &line))
