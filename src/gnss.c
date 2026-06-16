@@ -338,15 +338,19 @@ static void gnss_get_antenna_data(struct gps_device_t *session, PARSER_MSG_t *ms
 	}
 }
 
+/* Per-band signal counts updated from UBX-RXM-RAWX every second */
+static int rawx_sats_l1 = 0, rawx_sats_l2 = 0, rawx_sats_l5 = 0;
+
 static void log_gnss_data(struct gps_device_t *session)
 {
-	log_debug("GNSS data: Fix %s (%d), Fix ok: %s, satellites num %d, survey in error: %0.2f, antenna status: %d, valid %d,"
+	log_debug("GNSS data: Fix %s (%d), Fix ok: %s, satellites num %d, signals L1=%d L2=%d L5=%d, survey in error: %0.2f, antenna status: %d, valid %d,"
 		" time %lld, leapm_seconds %d, leap_notify %d, lsChange %d, "
 		"timeToLsChange %d, lsSet: %s, QErr(n) %d, qErr(n-1) %d, pos_accuracy %d m, time_accuracy %d ns",
 		fix_log[session->fix],
 		session->fix,
 		session->fixOk ? "True" : "False",
 		session->satellites_count,
+		rawx_sats_l1, rawx_sats_l2, rawx_sats_l5,
 		session->survey_in_position_error,
 		session->antenna_status,
 		session->valid,
@@ -556,6 +560,20 @@ static bool set_rtcm_output(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, con
 }
 
 /**
+ * @brief Swap L2 signal config keys with L5 equivalents for L5-capable receivers.
+ *
+ * The F9T-10B supports L1+L5 but not L2. When the default config (which has L2
+ * signals enabled) fails on such a receiver, this function replaces L2 signal
+ * keys with their L5 counterparts in the config array so it can be retried.
+ *
+ * Replacements:
+ *   CFG-SIGNAL-GPS_L2C_ENA  -> CFG-SIGNAL-GPS_L5_ENA
+ *   CFG-SIGNAL-GAL_E5B_ENA  -> CFG-SIGNAL-GAL_E5A_ENA
+ *   CFG-SIGNAL-QZSS_L2C_ENA -> CFG-SIGNAL-QZSS_L5_ENA
+ *   CFG-SIGNAL-GLO_L2_ENA   -> (removed, set false — no GLONASS L5)
+ *   CFG-SIGNAL-BDS_B2_ENA   -> (removed, set false — B2a not universally supported)
+ */
+/**
  * @brief Send configuration from f9_defvalsets.h to GNSS receiver
  *
  * @param rx pointer to serial communication handler
@@ -715,7 +733,6 @@ static bool gnss_set_rtcm_config(RX_t *rx)
 	/* Raw observations (RXM-RAWX) and navigation subframes (RXM-SFRBX) let an
 	 * external NTRIP client generate MSM observations and broadcast ephemeris
 	 * (RTCM 1019/1020/1042/1046), which casters need to compute a position. */
-	gnss_enable_ubx_uart1(rx, "UBX-RXM-RAWX");
 	gnss_enable_ubx_uart1(rx, "UBX-RXM-SFRBX");
 
 	log_info("RTCM3 output enabled on UART1 (%d messages configured)", nKv - 1);
@@ -888,6 +905,9 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 
 	if (!gnss_set_configuration(gnss->rx, config, gnss->receiver_version_major, gnss->receiver_version_minor))
 		goto err_gnss_connect;
+
+	/* Always enable UBX-RXM-RAWX for per-band satellite monitoring */
+	gnss_enable_ubx_uart1(gnss->rx, "UBX-RXM-RAWX");
 
 	/* Enable RTCM3 output on UART1 if configured */
 	gnss->rtcm_enabled = false;
@@ -1150,6 +1170,83 @@ static bool reset_serial(RX_t* rx)
 	return false;
 }
 
+/**
+ * @brief Count satellites per signal band from a UBX-RXM-RAWX message.
+ *
+ * Updates static counters on every RAWX message (1Hz).
+ * Counts are included in the per-second GNSS data log.
+ */
+
+static void gnss_update_rawx_bands(const PARSER_MSG_t *msg)
+{
+	const uint8_t *payload = msg->data + UBX_HEAD_SIZE;
+	int payload_len = msg->size - UBX_FRAME_SIZE;
+	if (payload_len < 16)
+		return;
+
+	int numMeas = payload[11];
+	if (payload_len < 16 + numMeas * 32)
+		return;
+
+	int l1 = 0, l2 = 0, l5 = 0;
+	for (int i = 0; i < numMeas; i++) {
+		int off = 16 + i * 32;
+		uint8_t cno = payload[off + 26];
+		uint8_t gnssId = payload[off + 20];
+		uint8_t sigId = payload[off + 22];
+
+		if (cno == 0)
+			continue;
+
+		/* Classification per u-blox signal numbering (UBX-RXM-RAWX):
+		 *   GPS:     0,1=L1  3,4=L2  6,7=L5
+		 *   SBAS:    0=L1  3=L5
+		 *   Galileo: 0,1=E1(L1)  3,4=E5a(L5)  5,6=E5b(L2-band)
+		 *   BeiDou:  0,1=B1(L1)  2,3=B2a(L5)  4,5=B2I(L2-band)  7=B3(~L2)
+		 *   QZSS:    0,1=L1  4,5=L2  8,9=L5
+		 *   GLONASS: 0=L1OF  2=L2OF
+		 */
+		switch (gnssId) {
+		case 0: /* GPS */
+			if (sigId <= 1) l1++;
+			else if (sigId <= 4) l2++;
+			else l5++;
+			break;
+		case 1: /* SBAS */
+			if (sigId == 0) l1++;
+			else l5++;
+			break;
+		case 2: /* Galileo */
+			if (sigId <= 1) l1++;
+			else if (sigId <= 4) l5++;  /* E5a = L5 band */
+			else l2++;                  /* E5b = L2 band */
+			break;
+		case 3: /* BeiDou */
+			if (sigId <= 1) l1++;       /* B1I D1/D2 (1561 MHz) */
+			else if (sigId <= 3) l2++;  /* B2I D1/D2 (1207 MHz) */
+			else if (sigId <= 6) l1++;  /* B1C pilot/data (1575 MHz) */
+			else l5++;                  /* B2a (1176 MHz) */
+			break;
+		case 5: /* QZSS */
+			if (sigId <= 1) l1++;
+			else if (sigId <= 5) l2++;
+			else l5++;
+			break;
+		case 6: /* GLONASS */
+			if (sigId == 0) l1++;
+			else l2++;
+			break;
+		default:
+			l1++; /* Unknown constellation, count as L1 */
+			break;
+		}
+	}
+
+	rawx_sats_l1 = l1;
+	rawx_sats_l2 = l2;
+	rawx_sats_l5 = l5;
+}
+
 /* True for messages an external NTRIP client needs forwarded over the socket:
  * RTCM3 (native MSM + station/bias), plus raw observations (UBX-RXM-RAWX) and
  * navigation subframes (UBX-RXM-SFRBX, used to build broadcast ephemeris). */
@@ -1195,6 +1292,12 @@ static void * gnss_thread(void * p_data)
 		PARSER_MSG_t *msg = rxGetNextMessageTimeout(gnss->rx, GNSS_TIMEOUT_MS);
 		if (msg != NULL)
 		{
+			/* Update per-band satellite counts from RAWX (always enabled) */
+			if (msg->type == PARSER_MSGTYPE_UBX &&
+			    UBX_CLSID(msg->data) == 0x02 && UBX_MSGID(msg->data) == 0x15) {
+				gnss_update_rawx_bands(msg);
+			}
+
 			/* Forward frames an external NTRIP client needs (RTCM3 plus raw
 			 * observation/navigation UBX messages) to the socket client. */
 			if (gnss->rtcm_enabled && gnss_rtcm_forward_msg(msg)) {
