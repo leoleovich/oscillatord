@@ -1,3 +1,10 @@
+oscillatord (3.10.0) unstable; urgency=medium
+
+  * Add per-band satellite monitoring from UBX-RXM-RAWX.
+  * Auto-detect L5 receiver.
+
+ -- Nicolas Bourdaud <nicolas.bourdaud@fr.nav-timing.safrangroup.com>  Tue, 23 Jun 2026 08:38:55 +0200
+
 oscillatord (3.9.3) unstable; urgency=medium
 
   * Forward raw observations and ephemeris over the RTCM socket.
