@@ -559,6 +559,7 @@ static void json_add_oscillator_data(struct json_object *resp, struct monitoring
 
 	struct json_object* oscillator = json_object_new_object();
 	json_object_object_add(oscillator, "model", json_object_new_string(monitoring->oscillator_model));
+	json_object_object_add(oscillator, "fw_version", json_object_new_string(monitoring->osc_attributes.fw_version));
 	json_object_object_add(oscillator, "fine_ctrl", json_object_new_int(monitoring->ctrl_values.fine_ctrl));
 	json_object_object_add(oscillator, "coarse_ctrl", json_object_new_int(monitoring->ctrl_values.coarse_ctrl));
 	json_object_object_add(oscillator, "lock", json_object_new_boolean(monitoring->osc_attributes.locked));
@@ -736,6 +737,7 @@ struct monitoring* monitoring_init(const struct config *config, struct devices_p
 	monitoring->osc_attributes.locked = false;
 	monitoring->osc_attributes.temperature = -400.0;
 	monitoring->osc_attributes.phase_error = 0;
+	monitoring->osc_attributes.fw_version[0] = '\0';
 
 	monitoring->gnss_info.antenna_power = -1;
 	monitoring->gnss_info.antenna_status = -1;

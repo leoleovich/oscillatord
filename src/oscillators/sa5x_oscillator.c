@@ -637,6 +637,7 @@ static int sa5x_oscillator_get_ctrl(struct oscillator *oscillator, struct oscill
 
 static int sa5x_oscillator_parse_attributes(struct oscillator *oscillator, struct oscillator_attributes *attributes)
 {
+	struct sa5x_oscillator *sa5x = container_of(oscillator, struct sa5x_oscillator, oscillator);
 	struct sa5x_attributes a = {};
 	int err = sa5x_oscillator_get_attributes(oscillator, &a, ATTR_STATUS_TEMPERATURE|ATTR_STATUS_PPS);
 	if (!err) {
@@ -647,6 +648,9 @@ static int sa5x_oscillator_parse_attributes(struct oscillator *oscillator, struc
 		attributes->temperature = -400.0;
 		attributes->locked = 0;
 	}
+	// firmware version is read once at init and cached, propagate it for monitoring
+	strncpy(attributes->fw_version, sa5x->version, sizeof(attributes->fw_version) - 1);
+	attributes->fw_version[sizeof(attributes->fw_version) - 1] = '\0';
 	// we cannot propagate error further
 	return 0;
 }

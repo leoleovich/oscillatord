@@ -20,6 +20,10 @@
 #define OSCILLATOR_NAME_LENGTH 50
 #endif
 
+#ifndef OSCILLATOR_FW_VERSION_LENGTH
+#define OSCILLATOR_FW_VERSION_LENGTH 20
+#endif
+
 struct oscillator;
 struct oscillator_ctrl;
 struct oscillator_attributes;
@@ -78,6 +82,8 @@ struct oscillator_attributes {
 	int64_t phase_error;
 	double temperature;
 	bool locked;
+	/* Firmware version of the oscillator, empty string if not reported */
+	char fw_version[OSCILLATOR_FW_VERSION_LENGTH];
 };
 
 int oscillator_get_phase_error(struct oscillator *oscillator, int64_t *phase_error);
