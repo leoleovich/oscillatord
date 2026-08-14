@@ -823,7 +823,12 @@ static void rtcm_sock_cleanup(struct gnss *gnss)
 		gnss->rtcm_listen_fd = -1;
 	}
 
-	pthread_join(gnss->rtcm_accept_thread, NULL);
+	/* Only join a thread that was actually created; the handle is otherwise
+	 * uninitialized and pthread_join() on it is undefined. */
+	if (gnss->rtcm_accept_started) {
+		pthread_join(gnss->rtcm_accept_thread, NULL);
+		gnss->rtcm_accept_started = false;
+	}
 
 	pthread_mutex_lock(&gnss->mutex_data);
 	int cfd = gnss->rtcm_client_fd;
@@ -908,6 +913,7 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 	gnss->rtcm_listen_fd = -1;
 	gnss->rtcm_client_fd = -1;
 	gnss->rtcm_accept_running = false;
+	gnss->rtcm_accept_started = false;
 	if (config_get_bool_default(config, "gnss-rtcm-enabled", false)) {
 		if (gnss_set_rtcm_config(gnss->rx)) {
 			gnss->rtcm_enabled = true;
@@ -922,6 +928,8 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 					close(gnss->rtcm_listen_fd);
 					gnss->rtcm_listen_fd = -1;
 					unlink(RTCM_SOCK_PATH);
+				} else {
+					gnss->rtcm_accept_started = true;
 				}
 			}
 		} else {

@@ -206,6 +206,7 @@ struct gnss {
 	int rtcm_listen_fd;
 	int rtcm_client_fd;
 	pthread_t rtcm_accept_thread;
+	bool rtcm_accept_started;
 	bool rtcm_accept_running;
 };
 
