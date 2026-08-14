@@ -508,10 +508,6 @@ static bool set_rtcm_output(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, con
 
 	static const uint32_t rtcm_uart1_ids[] = {
 		UBLOXCFG_CFG_MSGOUT_RTCM_3X_TYPE1005_UART1_ID,
-		UBLOXCFG_CFG_MSGOUT_RTCM_3X_TYPE1077_UART1_ID,
-		UBLOXCFG_CFG_MSGOUT_RTCM_3X_TYPE1087_UART1_ID,
-		UBLOXCFG_CFG_MSGOUT_RTCM_3X_TYPE1097_UART1_ID,
-		UBLOXCFG_CFG_MSGOUT_RTCM_3X_TYPE1127_UART1_ID,
 		UBLOXCFG_CFG_MSGOUT_RTCM_3X_TYPE1230_UART1_ID,
 	};
 
@@ -688,21 +684,19 @@ static void gnss_enable_ubx_uart1(RX_t *rx, const char *msgName)
 /**
  * @brief Enable RTCM3 output on UART1 for NTRIP base station use.
  *
- * Enables RTCM3 output protocol and configures messages 1005, 1077,
- * 1087, 1097, 1127, 1230 at rate=1 on UART1. Also enables UBX-RXM-RAWX
- * (raw observations) and UBX-RXM-SFRBX (raw navigation subframes) so an
- * external NTRIP client can build MSM observations and broadcast ephemeris.
- * The frames are multiplexed with UBX on the same port and separated by
- * the parser.
+ * Enables RTCM3 output protocol and configures messages 1005 and 1230 at
+ * rate=1 on UART1. Also enables UBX-RXM-RAWX (raw observations) and
+ * UBX-RXM-SFRBX (raw navigation subframes) so an external NTRIP client can
+ * build MSM observations and broadcast ephemeris. The frames are multiplexed
+ * with UBX on the same port and separated by the parser.
+ *
+ * Receiver MSM (1077/1087/1097/1127) stays off: the NTRIP client rebuilds it
+ * from RAWX, and it costs ~86 ms of the 115200-baud UART every second.
  */
 static bool gnss_set_rtcm_config(RX_t *rx)
 {
 	static const char *rtcm_messages[] = {
 		"RTCM-3X-TYPE1005",
-		"RTCM-3X-TYPE1077",
-		"RTCM-3X-TYPE1087",
-		"RTCM-3X-TYPE1097",
-		"RTCM-3X-TYPE1127",
 		"RTCM-3X-TYPE1230",
 	};
 	UBLOXCFG_KEYVAL_t kv[16];
@@ -735,7 +729,7 @@ static bool gnss_set_rtcm_config(RX_t *rx)
 	 * (RTCM 1019/1020/1042/1046), which casters need to compute a position. */
 	gnss_enable_ubx_uart1(rx, "UBX-RXM-SFRBX");
 
-	log_info("RTCM3 output enabled on UART1 (%d messages configured)", nKv - 1);
+	log_info("RTCM3 output enabled on UART1 (1005/1230; receiver MSM disabled)");
 	return true;
 }
 
