@@ -30,6 +30,7 @@
 
 #define GNSS_TIMEOUT_MS 1200
 #define GNSS_RECONFIGURE_MAX_TRY 5
+#define GNSS_UART_LOAD_PERIOD_S 60
 #define SEC_IN_WEEK 604800
 
 #define GPS_EPOCH_TO_TAI 315964819
@@ -1178,8 +1179,12 @@ static void * gnss_thread(void * p_data)
 	int rtcm_log_counter = 0;
 	int rtcm_msg_count = 0;
 	int rtcm_byte_count = 0;
+	long uart_bytes = 0;
+	long uart_garbage = 0;
+	struct timespec uart_window_start;
 
 	epochInit(&coll);
+	clock_gettime(CLOCK_MONOTONIC, &uart_window_start);
 
 	pthread_mutex_lock(&gnss->mutex_data);
 	stop = gnss->stop;
@@ -1190,6 +1195,10 @@ static void * gnss_thread(void * p_data)
 		PARSER_MSG_t *msg = rxGetNextMessageTimeout(gnss->rx, GNSS_TIMEOUT_MS);
 		if (msg != NULL)
 		{
+			uart_bytes += msg->size;
+			if (msg->type == PARSER_MSGTYPE_GARBAGE)
+				uart_garbage += msg->size;
+
 			if (msg->type == PARSER_MSGTYPE_UBX &&
 			    UBX_CLSID(msg->data) == UBX_RXM_CLSID && UBX_MSGID(msg->data) == UBX_RXM_RAWX_MSGID)
 				gnss_count_rawx_bands(msg->data, msg->size, &rawx_bands);
@@ -1324,6 +1333,23 @@ static void * gnss_thread(void * p_data)
 			pthread_cond_signal(&gnss->cond_data);
 			pthread_mutex_unlock(&gnss->mutex_data);
 			usleep(5 * 1000);
+		}
+
+		/* Receiver output against the UART line rate (8N1: 10 bits per byte) */
+		struct timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		double elapsed = (now.tv_sec - uart_window_start.tv_sec) +
+			(now.tv_nsec - uart_window_start.tv_nsec) / 1e9;
+		if (elapsed >= GNSS_UART_LOAD_PERIOD_S) {
+			int baudrate = rxGetBaudrate(gnss->rx);
+			double rate = uart_bytes / elapsed;
+
+			log_info("GNSS UART: %.0f B/s, %.0f%% of %d baud, %ld garbage bytes in last %.0fs",
+				rate, baudrate > 0 ? 100.0 * rate / (baudrate / 10.0) : 0.0, baudrate,
+				uart_garbage, elapsed);
+			uart_window_start = now;
+			uart_bytes = 0;
+			uart_garbage = 0;
 		}
 
 		/* this thread is the only writer to gnss->session, it's safe read the same values without mutex_data locked */
