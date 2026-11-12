@@ -32,7 +32,8 @@ jobs:
         ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref }}
 
     - name: Configure CMake
-      run: cmake -B ${{ github.workspace }}/build
+      # disciplining-minipod declares cmake_minimum_required(VERSION 3.2), which CMake 4 rejects
+      run: cmake -B ${{ github.workspace }}/build -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
     - name: Build
       run: cmake --build ${{github.workspace}}/build
@@ -50,7 +51,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgps-dev libjson-c-dev pps-tools libsystemd-dev
+        sudo apt-get install -y libgps-dev libjson-c-dev pps-tools libsystemd-dev systemd-dev
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
