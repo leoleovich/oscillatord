@@ -106,6 +106,92 @@ int gnss_receiver_bands(const UBLOXCFG_KEYVAL_t *defaults, int nDefaults)
     return GNSS_BAND_L1 | GNSS_BAND_L2;
 }
 
+#ifndef UBX_GNSSID_NAVIC
+#define UBX_GNSSID_NAVIC 7
+#endif
+
+static const struct {
+    uint8_t gnssId;
+    uint8_t sigId;
+    int     band;
+} kSignalBands[] = {
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L1CA,   GNSS_BAND_L1 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L2CL,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L2CM,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L5I,    GNSS_BAND_L5 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L5Q,    GNSS_BAND_L5 },
+    { UBX_GNSSID_SBAS,  UBX_SIGID_SBAS_L1CA,  GNSS_BAND_L1 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E1C,    GNSS_BAND_L1 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E1B,    GNSS_BAND_L1 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5AI,   GNSS_BAND_L5 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5AQ,   GNSS_BAND_L5 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5BI,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5BQ,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E6B,    GNSS_BAND_L6 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E6C,    GNSS_BAND_L6 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E6A,    GNSS_BAND_L6 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1ID1,  GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1ID2,  GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1CP,   GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1CD,   GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2ID1,  GNSS_BAND_L2 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2ID2,  GNSS_BAND_L2 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2AP,   GNSS_BAND_L5 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2AD,   GNSS_BAND_L5 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B3ID1,  GNSS_BAND_L6 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B3ID2,  GNSS_BAND_L6 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L1CA,  GNSS_BAND_L1 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L1S,   GNSS_BAND_L1 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L2CM,  GNSS_BAND_L2 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L2CL,  GNSS_BAND_L2 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L5I,   GNSS_BAND_L5 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L5Q,   GNSS_BAND_L5 },
+    { UBX_GNSSID_GLO,   UBX_SIGID_GLO_L1OF,   GNSS_BAND_L1 },
+    { UBX_GNSSID_GLO,   UBX_SIGID_GLO_L2OF,   GNSS_BAND_L2 },
+    { UBX_GNSSID_NAVIC, UBX_SIGID_NAVIC_L5A,  GNSS_BAND_L5 },
+};
+
+int gnss_signal_band(uint8_t gnssId, uint8_t sigId)
+{
+    for (int i = 0; i < NUMOF(kSignalBands); i++)
+    {
+        if (kSignalBands[i].gnssId == gnssId && kSignalBands[i].sigId == sigId)
+            return kSignalBands[i].band;
+    }
+    return 0;
+}
+
+bool gnss_count_rawx_bands(const uint8_t *msg, int size, struct gnss_band_counts *counts)
+{
+    struct gnss_band_counts c = {0};
+    UBX_RXM_RAWX_V1_GROUP0_t head;
+    UBX_RXM_RAWX_V1_GROUP1_t meas;
+
+    if (size < (int)(UBX_FRAME_SIZE + sizeof(head)))
+        return false;
+    memcpy(&head, &msg[UBX_HEAD_SIZE], sizeof(head));
+    if (head.version != UBX_RXM_RAWX_V1_VERSION ||
+        size != (int)(UBX_FRAME_SIZE + sizeof(head) + head.numMeas * sizeof(meas)))
+        return false;
+
+    for (int i = 0; i < head.numMeas; i++)
+    {
+        memcpy(&meas, &msg[UBX_HEAD_SIZE + sizeof(head) + i * sizeof(meas)], sizeof(meas));
+        if (meas.cno == 0)
+            continue;
+        switch (gnss_signal_band(meas.gnssId, meas.sigId))
+        {
+        case GNSS_BAND_L1: c.l1++; break;
+        case GNSS_BAND_L2: c.l2++; break;
+        case GNSS_BAND_L5: c.l5++; break;
+        case GNSS_BAND_L6: c.l6++; break;
+        default: c.other++; break;
+        }
+    }
+    *counts = c;
+    return true;
+}
+
 /* ****************************************************************************************************************** */
 
 typedef struct CFG_DB_s

@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include <ff/ff_ubx.h>
 
 #include "gnss-config.h"
 #include "log.h"
@@ -237,6 +240,100 @@ static void test_receiver_bands(void)
     CHECK(gnss_receiver_bands(e6_off, 1) == all);
 }
 
+struct signal_band {
+    uint8_t gnssId;
+    uint8_t sigId;
+    int     band;
+};
+
+/* gnssId/sigId pairs of the u-blox interface descriptions, as numbers */
+static const struct signal_band known_signals[] = {
+    {0, 0, GNSS_BAND_L1},  {0, 3, GNSS_BAND_L2},  {0, 4, GNSS_BAND_L2},  {0, 6, GNSS_BAND_L5},
+    {0, 7, GNSS_BAND_L5},  {1, 0, GNSS_BAND_L1},  {2, 0, GNSS_BAND_L1},  {2, 1, GNSS_BAND_L1},
+    {2, 3, GNSS_BAND_L5},  {2, 4, GNSS_BAND_L5},  {2, 5, GNSS_BAND_L2},  {2, 6, GNSS_BAND_L2},
+    {2, 8, GNSS_BAND_L6},  {2, 9, GNSS_BAND_L6},  {2, 10, GNSS_BAND_L6}, {3, 0, GNSS_BAND_L1},
+    {3, 1, GNSS_BAND_L1},  {3, 2, GNSS_BAND_L2},  {3, 3, GNSS_BAND_L2},  {3, 4, GNSS_BAND_L6},
+    {3, 5, GNSS_BAND_L1},  {3, 6, GNSS_BAND_L1},  {3, 7, GNSS_BAND_L5},  {3, 8, GNSS_BAND_L5},
+    {3, 10, GNSS_BAND_L6}, {5, 0, GNSS_BAND_L1},  {5, 1, GNSS_BAND_L1},  {5, 4, GNSS_BAND_L2},
+    {5, 5, GNSS_BAND_L2},  {5, 8, GNSS_BAND_L5},  {5, 9, GNSS_BAND_L5},  {6, 0, GNSS_BAND_L1},
+    {6, 2, GNSS_BAND_L2},  {7, 0, GNSS_BAND_L5},
+};
+
+static const struct signal_band unknown_signals[] = {
+    {0, 1, 0},  {0, 2, 0},  {0, 5, 0},  {1, 1, 0},  {1, 3, 0}, {2, 2, 0},
+    {2, 7, 0},  {2, 11, 0}, {3, 9, 0},  {3, 11, 0}, {5, 2, 0}, {5, 12, 0},
+    {6, 1, 0},  {7, 1, 0},  {4, 0, 0},  {0xff, 0, 0},
+};
+
+static void test_signal_bands(void)
+{
+    for (size_t i = 0; i < sizeof(known_signals) / sizeof(known_signals[0]); i++)
+        CHECK(gnss_signal_band(known_signals[i].gnssId, known_signals[i].sigId) == known_signals[i].band);
+    for (size_t i = 0; i < sizeof(unknown_signals) / sizeof(unknown_signals[0]); i++)
+        CHECK(gnss_signal_band(unknown_signals[i].gnssId, unknown_signals[i].sigId) == 0);
+}
+
+struct rawx_meas {
+    uint8_t gnssId;
+    uint8_t sigId;
+    uint8_t cno;
+};
+
+static int make_rawx(uint8_t* frame, uint8_t version, const struct rawx_meas* meas, int n)
+{
+    UBX_RXM_RAWX_V1_GROUP0_t head = {.numMeas = n, .version = version};
+    uint8_t                  payload[sizeof(head) + 255 * sizeof(UBX_RXM_RAWX_V1_GROUP1_t)];
+
+    memcpy(payload, &head, sizeof(head));
+    for (int i = 0; i < n; i++) {
+        UBX_RXM_RAWX_V1_GROUP1_t m = {.gnssId = meas[i].gnssId, .sigId = meas[i].sigId, .cno = meas[i].cno};
+
+        memcpy(&payload[sizeof(head) + i * sizeof(m)], &m, sizeof(m));
+    }
+    return ubxMakeMessage(UBX_RXM_CLSID, UBX_RXM_RAWX_MSGID, payload,
+                          sizeof(head) + n * sizeof(UBX_RXM_RAWX_V1_GROUP1_t), frame);
+}
+
+static bool counts_equal(const struct gnss_band_counts* c, int l1, int l2, int l5, int l6, int other)
+{
+    return c->l1 == l1 && c->l2 == l2 && c->l5 == l5 && c->l6 == l6 && c->other == other;
+}
+
+static void test_count_rawx_bands(void)
+{
+    static const struct rawx_meas mixed[] = {
+        {0, 0, 40},  /* GPS L1C/A */
+        {0, 3, 35},  /* GPS L2 CL */
+        {2, 4, 30},  /* Galileo E5a Q */
+        {2, 8, 28},  /* Galileo E6 B */
+        {3, 4, 25},  /* BeiDou B3I D1 */
+        {7, 0, 33},  /* NavIC L5 A */
+        {5, 12, 20}, /* unknown QZSS signal */
+        {0, 0, 0},   /* not tracked */
+    };
+    const struct gnss_band_counts untouched = {7, 7, 7, 7, 7};
+    struct gnss_band_counts       counts;
+    uint8_t frame[UBX_FRAME_SIZE + sizeof(UBX_RXM_RAWX_V1_GROUP0_t) + 255 * sizeof(UBX_RXM_RAWX_V1_GROUP1_t)];
+    int     size = make_rawx(frame, UBX_RXM_RAWX_V1_VERSION, mixed, 8);
+
+    CHECK(gnss_count_rawx_bands(frame, size, &counts));
+    CHECK(counts_equal(&counts, 1, 1, 2, 2, 1));
+
+    counts = untouched;
+    CHECK(!gnss_count_rawx_bands(frame, size - 1, &counts));
+    CHECK(!gnss_count_rawx_bands(frame, size + 1, &counts));
+    CHECK(!gnss_count_rawx_bands(frame, UBX_FRAME_SIZE, &counts));
+    CHECK(memcmp(&counts, &untouched, sizeof(counts)) == 0);
+
+    size = make_rawx(frame, 0, mixed, 8);
+    CHECK(!gnss_count_rawx_bands(frame, size, &counts));
+    CHECK(memcmp(&counts, &untouched, sizeof(counts)) == 0);
+
+    size = make_rawx(frame, UBX_RXM_RAWX_V1_VERSION, mixed, 0);
+    CHECK(gnss_count_rawx_bands(frame, size, &counts));
+    CHECK(counts_equal(&counts, 0, 0, 0, 0, 0));
+}
+
 int main(void)
 {
     log_set_level(LOG_FATAL);
@@ -244,5 +341,7 @@ int main(void)
     test_unsupported_bands_rejected();
     test_x20t_config();
     test_receiver_bands();
+    test_signal_bands();
+    test_count_rawx_bands();
     return 0;
 }
