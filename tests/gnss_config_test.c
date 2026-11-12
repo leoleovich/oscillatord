@@ -146,10 +146,37 @@ static void test_unsupported_bands_rejected(void)
     CHECK(get_default_value_from_config(&nkv, 2, 20, GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5) == NULL);
 }
 
+static void test_receiver_bands(void)
+{
+    static const UBLOXCFG_KEYVAL_t l2c_only[] = {
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, .val.L = true},
+    };
+    static const UBLOXCFG_KEYVAL_t l2c_on_with_l5[] = {
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, .val.L = true},
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID, .val.L = false},
+    };
+    static const UBLOXCFG_KEYVAL_t l2c_off_without_l5[] = {
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, .val.L = false},
+    };
+    /* Factory defaults read from the F9T-10B on time04 */
+    static const UBLOXCFG_KEYVAL_t f9t_10b[] = {
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID, .val.L = false},
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, .val.L = false},
+    };
+
+    CHECK(gnss_receiver_bands(NULL, -1) == (GNSS_BAND_L1 | GNSS_BAND_L2));
+    CHECK(gnss_receiver_bands(NULL, 0) == (GNSS_BAND_L1 | GNSS_BAND_L2));
+    CHECK(gnss_receiver_bands(l2c_only, 1) == (GNSS_BAND_L1 | GNSS_BAND_L2));
+    CHECK(gnss_receiver_bands(l2c_on_with_l5, 2) == (GNSS_BAND_L1 | GNSS_BAND_L2));
+    CHECK(gnss_receiver_bands(l2c_off_without_l5, 1) == (GNSS_BAND_L1 | GNSS_BAND_L2));
+    CHECK(gnss_receiver_bands(f9t_10b, 2) == (GNSS_BAND_L1 | GNSS_BAND_L5));
+}
+
 int main(void)
 {
     log_set_level(LOG_FATAL);
     test_fleet_configs_unchanged();
     test_unsupported_bands_rejected();
+    test_receiver_bands();
     return 0;
 }
