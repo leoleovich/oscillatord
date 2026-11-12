@@ -601,6 +601,8 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 	int nAllKvCfg;
 	int bands = GNSS_BAND_L1 | (band_l5 ? GNSS_BAND_L5 : GNSS_BAND_L2);
 	UBLOXCFG_KEYVAL_t *allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, bands);
+	if (allKvCfg == NULL)
+		return false;
 
 	set_preferred_time_scale(allKvCfg, nAllKvCfg, config);
 	set_cable_delay(allKvCfg, nAllKvCfg, config);
@@ -636,6 +638,8 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 			band_l2 = false;
 			band_l5 = true;
 			allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, GNSS_BAND_L1 | GNSS_BAND_L5);
+			if (allKvCfg == NULL)
+				return false;
 			set_preferred_time_scale(allKvCfg, nAllKvCfg, config);
 			set_cable_delay(allKvCfg, nAllKvCfg, config);
 			set_rtcm_output(allKvCfg, nAllKvCfg, config);

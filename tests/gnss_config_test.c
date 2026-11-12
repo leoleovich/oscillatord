@@ -138,9 +138,18 @@ static void test_fleet_configs_unchanged(void)
     }
 }
 
+static void test_unsupported_bands_rejected(void)
+{
+    int nkv = 0;
+
+    CHECK(get_default_value_from_config(&nkv, 2, 20, GNSS_BAND_L1) == NULL);
+    CHECK(get_default_value_from_config(&nkv, 2, 20, GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5) == NULL);
+}
+
 int main(void)
 {
-    log_set_level(LOG_ERROR);
+    log_set_level(LOG_FATAL);
     test_fleet_configs_unchanged();
+    test_unsupported_bands_rejected();
     return 0;
 }
