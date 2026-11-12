@@ -576,23 +576,31 @@ const char signals_l1l2[][128] = {
 };
 const int signals_l1l2_size = sizeof(signals_l1l2) / sizeof(signals_l1l2[0]);
 
+/* The F9T-10B rejects BeiDou B1C together with B1I, which all BeiDou satellites transmit */
 const char signals_l1l5[][128] = {
     "CFG-SIGNAL-GPS_ENA                 true",
     "CFG-SIGNAL-GPS_L1CA_ENA            true",
+    "CFG-SIGNAL-GPS_L2C_ENA             false",
     "CFG-SIGNAL-GPS_L5_ENA              true",
     "CFG-SIGNAL-SBAS_ENA                true",
     "CFG-SIGNAL-SBAS_L1CA_ENA           false",
     "CFG-SIGNAL-GAL_ENA                 true",
     "CFG-SIGNAL-GAL_E1_ENA              true",
     "CFG-SIGNAL-GAL_E5A_ENA             true",
+    "CFG-SIGNAL-GAL_E5B_ENA             false",
     "CFG-SIGNAL-BDS_ENA                 true",
     "CFG-SIGNAL-BDS_B1_ENA              true",
+    "CFG-SIGNAL-BDS_B1C_ENA             false",
     "CFG-SIGNAL-BDS_B2_ENA              false",
+    "CFG-SIGNAL-BDS_B2A_ENA             true",
     "CFG-SIGNAL-QZSS_ENA                true",
     "CFG-SIGNAL-QZSS_L1CA_ENA           true",
+    "CFG-SIGNAL-QZSS_L2C_ENA            false",
     "CFG-SIGNAL-QZSS_L5_ENA             true",
     "CFG-SIGNAL-GLO_ENA                 true",
     "CFG-SIGNAL-GLO_L1_ENA              true",
-    "CFG-SIGNAL-GLO_L2_ENA              false"
+    "CFG-SIGNAL-GLO_L2_ENA              false",
+    "CFG-SIGNAL-NAVIC_ENA               true",
+    "CFG-SIGNAL-NAVIC_L5_ENA            true"
 };
 const int signals_l1l5_size = sizeof(signals_l1l5) / sizeof(signals_l1l5[0]);

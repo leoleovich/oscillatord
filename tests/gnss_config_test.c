@@ -26,34 +26,49 @@ struct expected_config {
     int                          bands;
     int                          nkv;
     uint64_t                     hash;
-    const struct expected_value* values;
+    const struct expected_value* signals;
 };
 
-static const struct expected_value values_l1l2[] = {
-    {"CFG-SIGNAL-GPS_L2C_ENA", 1},
-    {"CFG-SIGNAL-GAL_E5B_ENA", 1},
-    {"CFG-SIGNAL-BDS_B2_ENA", 1},
-    {"CFG-SIGNAL-GLO_L2_ENA", 1},
+/* Every CFG-SIGNAL key of the profile; the F9T lists match the time01 and time04 receiver dumps */
+static const struct expected_value signals_f9t_00b_v201[] = {
+    {"CFG-SIGNAL-GPS_ENA", 1},       {"CFG-SIGNAL-GPS_L1CA_ENA", 1},  {"CFG-SIGNAL-GPS_L2C_ENA", 1},
+    {"CFG-SIGNAL-SBAS_ENA", 1},      {"CFG-SIGNAL-SBAS_L1CA_ENA", 0}, {"CFG-SIGNAL-GAL_ENA", 1},
+    {"CFG-SIGNAL-GAL_E1_ENA", 1},    {"CFG-SIGNAL-GAL_E5B_ENA", 1},   {"CFG-SIGNAL-BDS_ENA", 1},
+    {"CFG-SIGNAL-BDS_B1_ENA", 1},    {"CFG-SIGNAL-BDS_B2_ENA", 1},    {"CFG-SIGNAL-QZSS_ENA", 1},
+    {"CFG-SIGNAL-QZSS_L1CA_ENA", 1}, {"CFG-SIGNAL-QZSS_L1S_ENA", 0},  {"CFG-SIGNAL-QZSS_L2C_ENA", 1},
+    {"CFG-SIGNAL-GLO_ENA", 1},       {"CFG-SIGNAL-GLO_L1_ENA", 1},    {"CFG-SIGNAL-GLO_L2_ENA", 1},
     {NULL, 0},
 };
 
-static const struct expected_value values_l1l5[] = {
-    {"CFG-SIGNAL-GPS_L5_ENA", 1},
-    {"CFG-SIGNAL-GAL_E5A_ENA", 1},
-    {"CFG-SIGNAL-QZSS_L5_ENA", 1},
-    {"CFG-SIGNAL-BDS_B2_ENA", 0},
-    {"CFG-SIGNAL-GLO_L2_ENA", 0},
+static const struct expected_value signals_f9t_00b_v220[] = {
+    {"CFG-SIGNAL-GPS_ENA", 1},       {"CFG-SIGNAL-GPS_L1CA_ENA", 1},  {"CFG-SIGNAL-GPS_L2C_ENA", 1},
+    {"CFG-SIGNAL-SBAS_ENA", 1},      {"CFG-SIGNAL-SBAS_L1CA_ENA", 0}, {"CFG-SIGNAL-GAL_ENA", 1},
+    {"CFG-SIGNAL-GAL_E1_ENA", 1},    {"CFG-SIGNAL-GAL_E5B_ENA", 1},   {"CFG-SIGNAL-BDS_ENA", 1},
+    {"CFG-SIGNAL-BDS_B1_ENA", 1},    {"CFG-SIGNAL-BDS_B2_ENA", 1},    {"CFG-SIGNAL-QZSS_ENA", 1},
+    {"CFG-SIGNAL-QZSS_L1CA_ENA", 1}, {"CFG-SIGNAL-QZSS_L2C_ENA", 1},  {"CFG-SIGNAL-GLO_ENA", 1},
+    {"CFG-SIGNAL-GLO_L1_ENA", 1},    {"CFG-SIGNAL-GLO_L2_ENA", 1},    {NULL, 0},
+};
+
+static const struct expected_value signals_f9t_10b[] = {
+    {"CFG-SIGNAL-GPS_ENA", 1},       {"CFG-SIGNAL-GPS_L1CA_ENA", 1},  {"CFG-SIGNAL-GPS_L2C_ENA", 0},
+    {"CFG-SIGNAL-GPS_L5_ENA", 1},    {"CFG-SIGNAL-SBAS_ENA", 1},      {"CFG-SIGNAL-SBAS_L1CA_ENA", 0},
+    {"CFG-SIGNAL-GAL_ENA", 1},       {"CFG-SIGNAL-GAL_E1_ENA", 1},    {"CFG-SIGNAL-GAL_E5A_ENA", 1},
+    {"CFG-SIGNAL-GAL_E5B_ENA", 0},   {"CFG-SIGNAL-BDS_ENA", 1},       {"CFG-SIGNAL-BDS_B1_ENA", 1},
+    {"CFG-SIGNAL-BDS_B1C_ENA", 0},   {"CFG-SIGNAL-BDS_B2_ENA", 0},    {"CFG-SIGNAL-BDS_B2A_ENA", 1},
+    {"CFG-SIGNAL-QZSS_ENA", 1},      {"CFG-SIGNAL-QZSS_L1CA_ENA", 1}, {"CFG-SIGNAL-QZSS_L2C_ENA", 0},
+    {"CFG-SIGNAL-QZSS_L5_ENA", 1},   {"CFG-SIGNAL-GLO_ENA", 1},       {"CFG-SIGNAL-GLO_L1_ENA", 1},
+    {"CFG-SIGNAL-GLO_L2_ENA", 0},    {"CFG-SIGNAL-NAVIC_ENA", 1},     {"CFG-SIGNAL-NAVIC_L5_ENA", 1},
     {NULL, 0},
 };
 
 /* Resolved configs of the deployed F9T fleet. Any change here makes every such
  * host rewrite its config and hard-reset the receiver on upgrade. */
 static const struct expected_config fleet[] = {
-    {"F9T-00B FW 2.01", 2, 1, GNSS_BAND_L1 | GNSS_BAND_L2, 571, 0xe8fbabc789fd5e9bULL, values_l1l2},
-    {"F9T-00B FW 2.20", 2, 20, GNSS_BAND_L1 | GNSS_BAND_L2, 604, 0xde0b7356db971c68ULL, values_l1l2},
-    {"F9T-10B FW 2.20", 2, 20, GNSS_BAND_L1 | GNSS_BAND_L5, 604, 0xd20c480c81879bfaULL, values_l1l5},
-    {"F9T-00B FW unknown", -1, -1, GNSS_BAND_L1 | GNSS_BAND_L2, 571, 0xe8fbabc789fd5e9bULL, values_l1l2},
-    {"F9T-10B FW unknown", -1, -1, GNSS_BAND_L1 | GNSS_BAND_L5, 604, 0xd20c480c81879bfaULL, values_l1l5},
+    {"F9T-00B FW 2.01", 2, 1, GNSS_BAND_L1 | GNSS_BAND_L2, 571, 0xe8fbabc789fd5e9bULL, signals_f9t_00b_v201},
+    {"F9T-00B FW 2.20", 2, 20, GNSS_BAND_L1 | GNSS_BAND_L2, 604, 0xde0b7356db971c68ULL, signals_f9t_00b_v220},
+    {"F9T-10B FW 2.20", 2, 20, GNSS_BAND_L1 | GNSS_BAND_L5, 611, 0x483c658b9c192192ULL, signals_f9t_10b},
+    {"F9T-00B FW unknown", -1, -1, GNSS_BAND_L1 | GNSS_BAND_L2, 571, 0xe8fbabc789fd5e9bULL, signals_f9t_00b_v201},
+    {"F9T-10B FW unknown", -1, -1, GNSS_BAND_L1 | GNSS_BAND_L5, 611, 0x483c658b9c192192ULL, signals_f9t_10b},
 };
 
 static uint64_t value_of(const UBLOXCFG_KEYVAL_t* kv)
@@ -116,6 +131,23 @@ static const UBLOXCFG_KEYVAL_t* find_key(const UBLOXCFG_KEYVAL_t* kv, int nkv, c
     return NULL;
 }
 
+static void check_signals(const UBLOXCFG_KEYVAL_t* kv, int nkv, const struct expected_value* signals)
+{
+    int nexpected = 0;
+    int nsignal   = 0;
+
+    for (const struct expected_value* v = signals; v->name != NULL; v++, nexpected++) {
+        const UBLOXCFG_KEYVAL_t* found = find_key(kv, nkv, v->name);
+
+        CHECK(found != NULL);
+        CHECK(value_of(found) == v->value);
+    }
+    for (int i = 0; i < nkv; i++)
+        if (UBLOXCFG_ID2GROUP(kv[i].id) == UBLOXCFG_CFG_SIGNAL_ID)
+            nsignal++;
+    CHECK(nsignal == nexpected);
+}
+
 static void test_fleet_configs_unchanged(void)
 {
     for (size_t i = 0; i < sizeof(fleet) / sizeof(fleet[0]); i++) {
@@ -124,12 +156,7 @@ static void test_fleet_configs_unchanged(void)
         UBLOXCFG_KEYVAL_t*            kv  = get_default_value_from_config(&nkv, e->major, e->minor, e->bands);
 
         CHECK(kv != NULL);
-        for (const struct expected_value* v = e->values; v->name != NULL; v++) {
-            const UBLOXCFG_KEYVAL_t* found = find_key(kv, nkv, v->name);
-
-            CHECK(found != NULL);
-            CHECK(value_of(found) == v->value);
-        }
+        check_signals(kv, nkv, e->signals);
         uint64_t hash = config_hash(kv, nkv);
         printf("%s: nkv=%d hash=0x%016llx\n", e->name, nkv, (unsigned long long)hash);
         CHECK(nkv == e->nkv);
