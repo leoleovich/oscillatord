@@ -30,6 +30,7 @@
 
 #define GNSS_TIMEOUT_MS 1200
 #define GNSS_RECONFIGURE_MAX_TRY 5
+#define GNSS_UART_LOAD_PERIOD_S 60
 #define SEC_IN_WEEK 604800
 
 #define GPS_EPOCH_TO_TAI 315964819
@@ -338,19 +339,19 @@ static void gnss_get_antenna_data(struct gps_device_t *session, PARSER_MSG_t *ms
 	}
 }
 
-/* Per-band signal counts updated from UBX-RXM-RAWX every second */
-static int rawx_sats_l1 = 0, rawx_sats_l2 = 0, rawx_sats_l5 = 0;
+/* Signals per band in the latest UBX-RXM-RAWX epoch */
+static struct gnss_band_counts rawx_bands;
 
 static void log_gnss_data(struct gps_device_t *session)
 {
-	log_debug("GNSS data: Fix %s (%d), Fix ok: %s, satellites num %d, signals L1=%d L2=%d L5=%d, survey in error: %0.2f, antenna status: %d, valid %d,"
+	log_debug("GNSS data: Fix %s (%d), Fix ok: %s, satellites num %d, signals L1=%d L2=%d L5=%d L6=%d other=%d, survey in error: %0.2f, antenna status: %d, valid %d,"
 		" time %lld, leapm_seconds %d, leap_notify %d, lsChange %d, "
 		"timeToLsChange %d, lsSet: %s, QErr(n) %d, qErr(n-1) %d, pos_accuracy %d m, time_accuracy %d ns",
 		fix_log[session->fix],
 		session->fix,
 		session->fixOk ? "True" : "False",
 		session->satellites_count,
-		rawx_sats_l1, rawx_sats_l2, rawx_sats_l5,
+		rawx_bands.l1, rawx_bands.l2, rawx_bands.l5, rawx_bands.l6, rawx_bands.other,
 		session->survey_in_position_error,
 		session->antenna_status,
 		session->valid,
@@ -555,52 +556,43 @@ static bool set_rtcm_output(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, con
 	return true;
 }
 
-/**
- * @brief Swap L2 signal config keys with L5 equivalents for L5-capable receivers.
- *
- * The F9T-10B supports L1+L5 but not L2. When the default config (which has L2
- * signals enabled) fails on such a receiver, this function replaces L2 signal
- * keys with their L5 counterparts in the config array so it can be retried.
- *
- * Replacements:
- *   CFG-SIGNAL-GPS_L2C_ENA  -> CFG-SIGNAL-GPS_L5_ENA
- *   CFG-SIGNAL-GAL_E5B_ENA  -> CFG-SIGNAL-GAL_E5A_ENA
- *   CFG-SIGNAL-QZSS_L2C_ENA -> CFG-SIGNAL-QZSS_L5_ENA
- *   CFG-SIGNAL-GLO_L2_ENA   -> (removed, set false — no GLONASS L5)
- *   CFG-SIGNAL-BDS_B2_ENA   -> (removed, set false — B2a not universally supported)
- */
+static int gnss_detect_bands(RX_t *rx, const char *version)
+{
+	const uint32_t    keys[] = { UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID,
+	                             UBLOXCFG_CFG_SIGNAL_GAL_E6_ENA_ID };
+	UBLOXCFG_KEYVAL_t defaults[ARRAY_SIZE(keys) + UBX_CFG_VALGET_V1_MAX_KV];
+	int               n = rxGetConfig(rx, UBLOXCFG_LAYER_DEFAULT, keys, ARRAY_SIZE(keys), defaults, ARRAY_SIZE(defaults));
+
+	/* TIM 2.20 rejects the whole poll because it does not know Galileo E6: ask again without it */
+	if (n == 0)
+		n = rxGetConfig(rx, UBLOXCFG_LAYER_DEFAULT, keys, ARRAY_SIZE(keys) - 1, defaults, ARRAY_SIZE(defaults));
+	int bands = gnss_receiver_bands(defaults, n);
+
+	log_debug("Factory default signal keys read: %d", n);
+	log_info("Signal bands: L1=%s L2=%s L5=%s L6=%s (%s)",
+		bands & GNSS_BAND_L1 ? "on" : "off",
+		bands & GNSS_BAND_L2 ? "on" : "off",
+		bands & GNSS_BAND_L5 ? "on" : "off",
+		bands & GNSS_BAND_L6 ? "on" : "off",
+		version);
+	return bands;
+}
+
 /**
  * @brief Send configuration from f9_defvalsets.h to GNSS receiver
  *
  * @param rx pointer to serial communication handler
  * @return boolean indicating receiver has correctly been reset to configuration
  */
-static bool gnss_set_configuration(RX_t* rx, const struct config* config, int major, int minor)
+static bool gnss_set_configuration(RX_t* rx, const struct config* config, int major, int minor, int bands)
 {
 	bool               receiver_configured = false;
 	int                tries               = 0;
 
-	/* Track which signal bands are active */
-	bool band_l1  = true;  /* Always enabled */
-	bool band_l2  = true;  /* Default: L2 enabled */
-	bool band_l5  = false; /* Default: L5 disabled */
-
-	/* Detect L5 receiver: read GPS_L5_ENA (0x10310004) from RAM */
-	{
-		uint32_t l5_key = 0x10310004; /* CFG-SIGNAL-GPS_L5_ENA */
-		UBLOXCFG_KEYVAL_t l5_result[128];
-		int n = rxGetConfig(rx, UBLOXCFG_LAYER_RAM, &l5_key, 1, l5_result, 128);
-		if (n > 0 && l5_result[0].val.L) {
-			log_info("L5 receiver detected (F9T-10B), using L5 signal config");
-			band_l2 = false;
-			band_l5 = true;
-		}
-	}
-
-	// Get configuration for the detected receiver model
 	int nAllKvCfg;
-	int bands = GNSS_BAND_L1 | (band_l5 ? GNSS_BAND_L5 : GNSS_BAND_L2);
 	UBLOXCFG_KEYVAL_t *allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, bands);
+	if (allKvCfg == NULL)
+		return false;
 
 	set_preferred_time_scale(allKvCfg, nAllKvCfg, config);
 	set_cable_delay(allKvCfg, nAllKvCfg, config);
@@ -627,18 +619,6 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 			}
 			log_info("hardware reset performed");
 			receiver_configured = true;
-		} else if (tries == 0 && !band_l5) {
-			/* First failure on undetected receiver: may be unconfigured L5.
-			 * Reload with L5 config and retry.
-			 */
-			log_warn("Config rejected (L2 keys unsupported?), retrying with L5 config");
-			free(allKvCfg);
-			band_l2 = false;
-			band_l5 = true;
-			allKvCfg = get_default_value_from_config(&nAllKvCfg, major, minor, GNSS_BAND_L1 | GNSS_BAND_L5);
-			set_preferred_time_scale(allKvCfg, nAllKvCfg, config);
-			set_cable_delay(allKvCfg, nAllKvCfg, config);
-			set_rtcm_output(allKvCfg, nAllKvCfg, config);
 		} else {
 			log_warn("Config rejected on attempt %d/%d", tries + 1, GNSS_RECONFIGURE_MAX_TRY);
 		}
@@ -653,13 +633,6 @@ static bool gnss_set_configuration(RX_t* rx, const struct config* config, int ma
 		}
 	}
 	free(allKvCfg);
-
-	/* Log active signal bands */
-	log_info("Signal bands: L1=%s L2=%s L5=%s",
-		band_l1 ? "on" : "off",
-		band_l2 ? "on" : "off",
-		band_l5 ? "on" : "off");
-
 	return true;
 }
 
@@ -892,7 +865,7 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 		goto err_gnss_connect;
 
 	/* Fetch receiver version and save it in gnss structure*/
-	char verStr[100];
+	char verStr[100] = "";
     if (rxGetVerStr(gnss->rx, verStr, sizeof(verStr))) {
 		if (parse_receiver_version(verStr, &gnss->receiver_version_major, &gnss->receiver_version_minor))
 			log_debug("Receiver version successfully detected ! Major is %d, Minor is %d ", gnss->receiver_version_major, gnss->receiver_version_minor);
@@ -902,7 +875,8 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 	else
 		log_warn("Receiver version get command failed");
 
-	if (!gnss_set_configuration(gnss->rx, config, gnss->receiver_version_major, gnss->receiver_version_minor))
+	int bands = gnss_detect_bands(gnss->rx, verStr);
+	if (!gnss_set_configuration(gnss->rx, config, gnss->receiver_version_major, gnss->receiver_version_minor, bands))
 		goto err_gnss_connect;
 
 	/* Always enable UBX-RXM-RAWX for per-band satellite monitoring */
@@ -1172,83 +1146,6 @@ static bool reset_serial(RX_t* rx)
 	return false;
 }
 
-/**
- * @brief Count satellites per signal band from a UBX-RXM-RAWX message.
- *
- * Updates static counters on every RAWX message (1Hz).
- * Counts are included in the per-second GNSS data log.
- */
-
-static void gnss_update_rawx_bands(const PARSER_MSG_t *msg)
-{
-	const uint8_t *payload = msg->data + UBX_HEAD_SIZE;
-	int payload_len = msg->size - UBX_FRAME_SIZE;
-	if (payload_len < 16)
-		return;
-
-	int numMeas = payload[11];
-	if (payload_len < 16 + numMeas * 32)
-		return;
-
-	int l1 = 0, l2 = 0, l5 = 0;
-	for (int i = 0; i < numMeas; i++) {
-		int off = 16 + i * 32;
-		uint8_t cno = payload[off + 26];
-		uint8_t gnssId = payload[off + 20];
-		uint8_t sigId = payload[off + 22];
-
-		if (cno == 0)
-			continue;
-
-		/* Classification per u-blox signal numbering (UBX-RXM-RAWX):
-		 *   GPS:     0,1=L1  3,4=L2  6,7=L5
-		 *   SBAS:    0=L1  3=L5
-		 *   Galileo: 0,1=E1(L1)  3,4=E5a(L5)  5,6=E5b(L2-band)
-		 *   BeiDou:  0,1=B1(L1)  2,3=B2a(L5)  4,5=B2I(L2-band)  7=B3(~L2)
-		 *   QZSS:    0,1=L1  4,5=L2  8,9=L5
-		 *   GLONASS: 0=L1OF  2=L2OF
-		 */
-		switch (gnssId) {
-		case 0: /* GPS */
-			if (sigId <= 1) l1++;
-			else if (sigId <= 4) l2++;
-			else l5++;
-			break;
-		case 1: /* SBAS */
-			if (sigId == 0) l1++;
-			else l5++;
-			break;
-		case 2: /* Galileo */
-			if (sigId <= 1) l1++;
-			else if (sigId <= 4) l5++;  /* E5a = L5 band */
-			else l2++;                  /* E5b = L2 band */
-			break;
-		case 3: /* BeiDou */
-			if (sigId <= 1) l1++;       /* B1I D1/D2 (1561 MHz) */
-			else if (sigId <= 3) l2++;  /* B2I D1/D2 (1207 MHz) */
-			else if (sigId <= 6) l1++;  /* B1C pilot/data (1575 MHz) */
-			else l5++;                  /* B2a (1176 MHz) */
-			break;
-		case 5: /* QZSS */
-			if (sigId <= 1) l1++;
-			else if (sigId <= 5) l2++;
-			else l5++;
-			break;
-		case 6: /* GLONASS */
-			if (sigId == 0) l1++;
-			else l2++;
-			break;
-		default:
-			l1++; /* Unknown constellation, count as L1 */
-			break;
-		}
-	}
-
-	rawx_sats_l1 = l1;
-	rawx_sats_l2 = l2;
-	rawx_sats_l5 = l5;
-}
-
 /* True for messages an external NTRIP client needs forwarded over the socket:
  * RTCM3 (native MSM + station/bias), plus raw observations (UBX-RXM-RAWX) and
  * navigation subframes (UBX-RXM-SFRBX, used to build broadcast ephemeris). */
@@ -1282,8 +1179,12 @@ static void * gnss_thread(void * p_data)
 	int rtcm_log_counter = 0;
 	int rtcm_msg_count = 0;
 	int rtcm_byte_count = 0;
+	long uart_bytes = 0;
+	long uart_garbage = 0;
+	struct timespec uart_window_start;
 
 	epochInit(&coll);
+	clock_gettime(CLOCK_MONOTONIC, &uart_window_start);
 
 	pthread_mutex_lock(&gnss->mutex_data);
 	stop = gnss->stop;
@@ -1294,11 +1195,13 @@ static void * gnss_thread(void * p_data)
 		PARSER_MSG_t *msg = rxGetNextMessageTimeout(gnss->rx, GNSS_TIMEOUT_MS);
 		if (msg != NULL)
 		{
-			/* Update per-band satellite counts from RAWX (always enabled) */
+			uart_bytes += msg->size;
+			if (msg->type == PARSER_MSGTYPE_GARBAGE)
+				uart_garbage += msg->size;
+
 			if (msg->type == PARSER_MSGTYPE_UBX &&
-			    UBX_CLSID(msg->data) == 0x02 && UBX_MSGID(msg->data) == 0x15) {
-				gnss_update_rawx_bands(msg);
-			}
+			    UBX_CLSID(msg->data) == UBX_RXM_CLSID && UBX_MSGID(msg->data) == UBX_RXM_RAWX_MSGID)
+				gnss_count_rawx_bands(msg->data, msg->size, &rawx_bands);
 
 			/* Forward frames an external NTRIP client needs (RTCM3 plus raw
 			 * observation/navigation UBX messages) to the socket client. */
@@ -1430,6 +1333,23 @@ static void * gnss_thread(void * p_data)
 			pthread_cond_signal(&gnss->cond_data);
 			pthread_mutex_unlock(&gnss->mutex_data);
 			usleep(5 * 1000);
+		}
+
+		/* Receiver output against the UART line rate (8N1: 10 bits per byte) */
+		struct timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		double elapsed = (now.tv_sec - uart_window_start.tv_sec) +
+			(now.tv_nsec - uart_window_start.tv_nsec) / 1e9;
+		if (elapsed >= GNSS_UART_LOAD_PERIOD_S) {
+			int baudrate = rxGetBaudrate(gnss->rx);
+			double rate = uart_bytes / elapsed;
+
+			log_info("GNSS UART: %.0f B/s, %.0f%% of %d baud, %ld garbage bytes in last %.0fs",
+				rate, baudrate > 0 ? 100.0 * rate / (baudrate / 10.0) : 0.0, baudrate,
+				uart_garbage, elapsed);
+			uart_window_start = now;
+			uart_bytes = 0;
+			uart_garbage = 0;
 		}
 
 		/* this thread is the only writer to gnss->session, it's safe read the same values without mutex_data locked */

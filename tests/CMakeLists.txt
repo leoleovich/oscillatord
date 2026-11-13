@@ -39,6 +39,7 @@ if(BUILD_TESTS)
 		${PROJECT_SOURCE_DIR}/src/oscillator.[ch]
 		${PROJECT_SOURCE_DIR}/src/oscillator_factory.[ch]
 		${PROJECT_SOURCE_DIR}/src/oscillators/sa5x_oscillator.c)
+	file(GLOB GNSS_CONFIG_TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/gnss_config_test.c)
 
 
 	pkg_check_modules(SYSTEMD REQUIRED libsystemd)
@@ -62,6 +63,10 @@ if(BUILD_TESTS)
 	add_executable(sa5x_oscillator_test
 		${SA5X_OSCILLATOR_TEST_SOURCES}
 		${COMMON_SOURCES})
+	add_executable(gnss_config_test
+		${GNSS_CONFIG_TEST_SOURCES}
+		${COMMON_SOURCES}
+		${COMMON_GNSS_SOURCES})
 
 	target_link_libraries(oscillator_sim PRIVATE m)
 	target_link_libraries(mro50_ctrl PRIVATE m)
@@ -78,8 +83,10 @@ if(BUILD_TESTS)
 	target_link_libraries(extts_test PRIVATE
 		m)
 	target_link_libraries(sa5x_oscillator_test PRIVATE m Threads::Threads)
+	target_link_libraries(gnss_config_test PRIVATE ${ubloxcfg_LIBRARIES} m)
 
 	add_test(NAME sa5x_oscillator COMMAND sa5x_oscillator_test)
+	add_test(NAME gnss_config COMMAND gnss_config_test)
 
 	install(TARGETS oscillator_sim RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 	install(TARGETS mro50_ctrl RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

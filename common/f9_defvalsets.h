@@ -1,10 +1,14 @@
 #ifndef OSCILLATORD_GNSS_F9_DEFVALSETS2
 #define OSCILLATORD_GNSS_F9_DEFVALSETS2
 
-extern const char default_configuration[284][128];
-extern const int default_configuration_size;
-extern const char default_configuration_v220[297][128];
-extern const int default_configuration_v220_size;
-extern const char default_configuration_f9t_10b[297][128];
-extern const int default_configuration_f9t_10b_size;
+extern const char base_configuration[][128];
+extern const int base_configuration_size;
+extern const char base_configuration_v220[][128];
+extern const int base_configuration_v220_size;
+extern const char signals_l1l2[][128];
+extern const int signals_l1l2_size;
+extern const char signals_l1l5[][128];
+extern const int signals_l1l5_size;
+extern const char signals_l1l2l5l6[][128];
+extern const int signals_l1l2l5l6_size;
 #endif

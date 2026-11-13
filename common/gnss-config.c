@@ -83,6 +83,115 @@ bool check_gnss_config_in_ram(RX_t *rx, UBLOXCFG_KEYVAL_t *allKvCfg, int nAllKvC
     return receiverconfigured;
 }
 
+/* ZED-X20T: knows Galileo E6. F9T-10B: knows GPS L5 and does not track GPS L2C by factory default */
+int gnss_receiver_bands(const UBLOXCFG_KEYVAL_t *defaults, int nDefaults)
+{
+    bool has_l5 = false;
+    bool has_l6 = false;
+    bool l2c_default = true;
+
+    for (int i = 0; i < nDefaults; i++)
+    {
+        if (defaults[i].id == UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID)
+            has_l5 = true;
+        else if (defaults[i].id == UBLOXCFG_CFG_SIGNAL_GAL_E6_ENA_ID)
+            has_l6 = true;
+        else if (defaults[i].id == UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID)
+            l2c_default = defaults[i].val.L;
+    }
+    if (has_l6)
+        return GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5 | GNSS_BAND_L6;
+    if (has_l5 && !l2c_default)
+        return GNSS_BAND_L1 | GNSS_BAND_L5;
+    return GNSS_BAND_L1 | GNSS_BAND_L2;
+}
+
+#ifndef UBX_GNSSID_NAVIC
+#define UBX_GNSSID_NAVIC 7
+#endif
+
+static const struct {
+    uint8_t gnssId;
+    uint8_t sigId;
+    int     band;
+} kSignalBands[] = {
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L1CA,   GNSS_BAND_L1 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L2CL,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L2CM,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L5I,    GNSS_BAND_L5 },
+    { UBX_GNSSID_GPS,   UBX_SIGID_GPS_L5Q,    GNSS_BAND_L5 },
+    { UBX_GNSSID_SBAS,  UBX_SIGID_SBAS_L1CA,  GNSS_BAND_L1 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E1C,    GNSS_BAND_L1 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E1B,    GNSS_BAND_L1 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5AI,   GNSS_BAND_L5 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5AQ,   GNSS_BAND_L5 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5BI,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E5BQ,   GNSS_BAND_L2 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E6B,    GNSS_BAND_L6 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E6C,    GNSS_BAND_L6 },
+    { UBX_GNSSID_GAL,   UBX_SIGID_GAL_E6A,    GNSS_BAND_L6 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1ID1,  GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1ID2,  GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1CP,   GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B1CD,   GNSS_BAND_L1 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2ID1,  GNSS_BAND_L2 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2ID2,  GNSS_BAND_L2 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2AP,   GNSS_BAND_L5 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B2AD,   GNSS_BAND_L5 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B3ID1,  GNSS_BAND_L6 },
+    { UBX_GNSSID_BDS,   UBX_SIGID_BDS_B3ID2,  GNSS_BAND_L6 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L1CA,  GNSS_BAND_L1 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L1S,   GNSS_BAND_L1 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L2CM,  GNSS_BAND_L2 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L2CL,  GNSS_BAND_L2 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L5I,   GNSS_BAND_L5 },
+    { UBX_GNSSID_QZSS,  UBX_SIGID_QZSS_L5Q,   GNSS_BAND_L5 },
+    { UBX_GNSSID_GLO,   UBX_SIGID_GLO_L1OF,   GNSS_BAND_L1 },
+    { UBX_GNSSID_GLO,   UBX_SIGID_GLO_L2OF,   GNSS_BAND_L2 },
+    { UBX_GNSSID_NAVIC, UBX_SIGID_NAVIC_L5A,  GNSS_BAND_L5 },
+};
+
+int gnss_signal_band(uint8_t gnssId, uint8_t sigId)
+{
+    for (int i = 0; i < NUMOF(kSignalBands); i++)
+    {
+        if (kSignalBands[i].gnssId == gnssId && kSignalBands[i].sigId == sigId)
+            return kSignalBands[i].band;
+    }
+    return 0;
+}
+
+bool gnss_count_rawx_bands(const uint8_t *msg, int size, struct gnss_band_counts *counts)
+{
+    struct gnss_band_counts c = {0};
+    UBX_RXM_RAWX_V1_GROUP0_t head;
+    UBX_RXM_RAWX_V1_GROUP1_t meas;
+
+    if (size < (int)(UBX_FRAME_SIZE + sizeof(head)))
+        return false;
+    memcpy(&head, &msg[UBX_HEAD_SIZE], sizeof(head));
+    if (head.version != UBX_RXM_RAWX_V1_VERSION ||
+        size != (int)(UBX_FRAME_SIZE + sizeof(head) + head.numMeas * sizeof(meas)))
+        return false;
+
+    for (int i = 0; i < head.numMeas; i++)
+    {
+        memcpy(&meas, &msg[UBX_HEAD_SIZE + sizeof(head) + i * sizeof(meas)], sizeof(meas));
+        if (meas.cno == 0)
+            continue;
+        switch (gnss_signal_band(meas.gnssId, meas.sigId))
+        {
+        case GNSS_BAND_L1: c.l1++; break;
+        case GNSS_BAND_L2: c.l2++; break;
+        case GNSS_BAND_L5: c.l5++; break;
+        case GNSS_BAND_L6: c.l6++; break;
+        default: c.other++; break;
+        }
+    }
+    *counts = c;
+    return true;
+}
+
 /* ****************************************************************************************************************** */
 
 typedef struct CFG_DB_s
@@ -104,8 +213,50 @@ typedef struct IO_LINE_s
 
 static bool _cfgDbAdd(CFG_DB_t *db, IO_LINE_t *line);
 
+static bool _cfgDbAddLines(CFG_DB_t *db, const char (*lines)[128], int nLines)
+{
+	for (int i = 0; i < nLines; i++)
+	{
+		char current_line[128];
+		strncpy(current_line, lines[i], sizeof(current_line) - 1);
+		current_line[sizeof(current_line) - 1] = '\0';
+		IO_LINE_t line = { .line = current_line };
+
+		if (!_cfgDbAdd(db, &line))
+			return false;
+	}
+	return true;
+}
+
 UBLOXCFG_KEYVAL_t *get_default_value_from_config(int *nKv, int major, int minor, int bands)
 {
+	const char (*signals)[128];
+	int nSignals;
+
+	switch (bands)
+	{
+	case GNSS_BAND_L1 | GNSS_BAND_L2:
+		signals = signals_l1l2;
+		nSignals = signals_l1l2_size;
+		break;
+	case GNSS_BAND_L1 | GNSS_BAND_L5:
+		signals = signals_l1l5;
+		nSignals = signals_l1l5_size;
+		break;
+	case GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5 | GNSS_BAND_L6:
+		signals = signals_l1l2l5l6;
+		nSignals = signals_l1l2l5l6_size;
+		break;
+	default:
+		log_error("No receiver configuration for signal bands 0x%x", bands);
+		return NULL;
+	}
+
+	/* The pre-2.20 base only exists for F9T-00B firmware */
+	const bool f9t_00b_before_v220 = bands == (GNSS_BAND_L1 | GNSS_BAND_L2) && (major < 2 || (major == 2 && minor < 20));
+	const char (*base)[128] = f9t_00b_before_v220 ? base_configuration : base_configuration_v220;
+	const int nBase = f9t_00b_before_v220 ? base_configuration_size : base_configuration_v220_size;
+
 	const int          kvSize = CFG_SET_MAX_KV * sizeof(UBLOXCFG_KEYVAL_t);
 	UBLOXCFG_KEYVAL_t* kv     = malloc(kvSize);
 	if (kv == NULL)
@@ -115,40 +266,8 @@ UBLOXCFG_KEYVAL_t *get_default_value_from_config(int *nKv, int major, int minor,
 	}
 	memset(kv, 0, kvSize);
 
-	CFG_DB_t db  = {.kv = kv, .nKv = 0, .maxKv = CFG_SET_MAX_KV};
-	bool     res = true;
-	char     current_line[128] = {};
-
-	{
-		/* Select config array based on firmware version and band mask */
-		const char (*cfg_array)[128];
-		size_t config_length;
-
-		if (bands & GNSS_BAND_L5) {
-			cfg_array = default_configuration_f9t_10b;
-			config_length = default_configuration_f9t_10b_size;
-		} else if ((major == 2 && minor >= 20) || (major >= 3)) {
-			cfg_array = default_configuration_v220;
-			config_length = default_configuration_v220_size;
-		} else {
-			cfg_array = default_configuration;
-			config_length = default_configuration_size;
-		}
-
-		for (size_t i = 0; i < config_length; i++)
-		{
-			strncpy(current_line, cfg_array[i], 127);
-			IO_LINE_t line = { .line = current_line };
-
-			if (!_cfgDbAdd(&db, &line))
-			{
-				res = false;
-				break;
-			}
-		}
-	}
-
-	if (!res)
+	CFG_DB_t db = {.kv = kv, .nKv = 0, .maxKv = CFG_SET_MAX_KV};
+	if (!_cfgDbAddLines(&db, base, nBase) || !_cfgDbAddLines(&db, signals, nSignals))
 	{
 		log_warn("Failed reading config file!");
 		free(kv);
