@@ -9,4 +9,6 @@ extern const char signals_l1l2[][128];
 extern const int signals_l1l2_size;
 extern const char signals_l1l5[][128];
 extern const int signals_l1l5_size;
+extern const char signals_l1l2l5l6[][128];
+extern const int signals_l1l2l5l6_size;
 #endif

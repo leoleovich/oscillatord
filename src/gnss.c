@@ -555,18 +555,25 @@ static bool set_rtcm_output(UBLOXCFG_KEYVAL_t* keyValuePairs, size_t length, con
 	return true;
 }
 
-static int gnss_detect_bands(RX_t *rx)
+static int gnss_detect_bands(RX_t *rx, const char *version)
 {
-	const uint32_t    keys[] = { UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID };
+	const uint32_t    keys[] = { UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID,
+	                             UBLOXCFG_CFG_SIGNAL_GAL_E6_ENA_ID };
 	UBLOXCFG_KEYVAL_t defaults[ARRAY_SIZE(keys) + UBX_CFG_VALGET_V1_MAX_KV];
 	int               n = rxGetConfig(rx, UBLOXCFG_LAYER_DEFAULT, keys, ARRAY_SIZE(keys), defaults, ARRAY_SIZE(defaults));
-	int               bands = gnss_receiver_bands(defaults, n);
+
+	/* TIM 2.20 rejects the whole poll because it does not know Galileo E6: ask again without it */
+	if (n == 0)
+		n = rxGetConfig(rx, UBLOXCFG_LAYER_DEFAULT, keys, ARRAY_SIZE(keys) - 1, defaults, ARRAY_SIZE(defaults));
+	int bands = gnss_receiver_bands(defaults, n);
 
 	log_debug("Factory default signal keys read: %d", n);
-	log_info("Signal bands: L1=%s L2=%s L5=%s",
+	log_info("Signal bands: L1=%s L2=%s L5=%s L6=%s (%s)",
 		bands & GNSS_BAND_L1 ? "on" : "off",
 		bands & GNSS_BAND_L2 ? "on" : "off",
-		bands & GNSS_BAND_L5 ? "on" : "off");
+		bands & GNSS_BAND_L5 ? "on" : "off",
+		bands & GNSS_BAND_L6 ? "on" : "off",
+		version);
 	return bands;
 }
 
@@ -857,7 +864,7 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 		goto err_gnss_connect;
 
 	/* Fetch receiver version and save it in gnss structure*/
-	char verStr[100];
+	char verStr[100] = "";
     if (rxGetVerStr(gnss->rx, verStr, sizeof(verStr))) {
 		if (parse_receiver_version(verStr, &gnss->receiver_version_major, &gnss->receiver_version_minor))
 			log_debug("Receiver version successfully detected ! Major is %d, Minor is %d ", gnss->receiver_version_major, gnss->receiver_version_minor);
@@ -867,7 +874,7 @@ struct gnss * gnss_init(const struct config *config, char *gnss_device_tty, stru
 	else
 		log_warn("Receiver version get command failed");
 
-	int bands = gnss_detect_bands(gnss->rx);
+	int bands = gnss_detect_bands(gnss->rx, verStr);
 	if (!gnss_set_configuration(gnss->rx, config, gnss->receiver_version_major, gnss->receiver_version_minor, bands))
 		goto err_gnss_connect;
 

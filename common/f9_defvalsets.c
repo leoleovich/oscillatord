@@ -555,6 +555,7 @@ const char base_configuration_v220[][128] = {
 };
 const int base_configuration_v220_size = sizeof(base_configuration_v220) / sizeof(base_configuration_v220[0]);
 
+/* ZED-F9T-00B */
 const char signals_l1l2[][128] = {
     "CFG-SIGNAL-GPS_ENA                 true",
     "CFG-SIGNAL-GPS_L1CA_ENA            true",
@@ -576,7 +577,7 @@ const char signals_l1l2[][128] = {
 };
 const int signals_l1l2_size = sizeof(signals_l1l2) / sizeof(signals_l1l2[0]);
 
-/* The F9T-10B rejects BeiDou B1C together with B1I, which all BeiDou satellites transmit */
+/* ZED-F9T-10B: it rejects BeiDou B1C together with B1I, which all BeiDou satellites transmit */
 const char signals_l1l5[][128] = {
     "CFG-SIGNAL-GPS_ENA                 true",
     "CFG-SIGNAL-GPS_L1CA_ENA            true",
@@ -604,3 +605,32 @@ const char signals_l1l5[][128] = {
     "CFG-SIGNAL-NAVIC_L5_ENA            true"
 };
 const int signals_l1l5_size = sizeof(signals_l1l5) / sizeof(signals_l1l5[0]);
+
+/* ZED-X20T: every signal of its product summary but BeiDou B1C, which excludes B1I on the F9T-10B */
+const char signals_l1l2l5l6[][128] = {
+    "CFG-SIGNAL-GPS_ENA                 true",
+    "CFG-SIGNAL-GPS_L1CA_ENA            true",
+    "CFG-SIGNAL-GPS_L2C_ENA             true",
+    "CFG-SIGNAL-GPS_L5_ENA              true",
+    "CFG-SIGNAL-SBAS_ENA                true",
+    "CFG-SIGNAL-SBAS_L1CA_ENA           false",
+    "CFG-SIGNAL-GAL_ENA                 true",
+    "CFG-SIGNAL-GAL_E1_ENA              true",
+    "CFG-SIGNAL-GAL_E5A_ENA             true",
+    "CFG-SIGNAL-GAL_E6_ENA              true",
+    "CFG-SIGNAL-BDS_ENA                 true",
+    "CFG-SIGNAL-BDS_B1_ENA              true",
+    "CFG-SIGNAL-BDS_B1C_ENA             false",
+    "CFG-SIGNAL-BDS_B2A_ENA             true",
+    "CFG-SIGNAL-BDS_B3_ENA              true",
+    "CFG-SIGNAL-QZSS_ENA                true",
+    "CFG-SIGNAL-QZSS_L1CA_ENA           true",
+    "CFG-SIGNAL-QZSS_L2C_ENA            true",
+    "CFG-SIGNAL-QZSS_L5_ENA             true",
+    "CFG-SIGNAL-GLO_ENA                 true",
+    "CFG-SIGNAL-GLO_L1_ENA              true",
+    "CFG-SIGNAL-GLO_L2_ENA              true",
+    "CFG-SIGNAL-NAVIC_ENA               true",
+    "CFG-SIGNAL-NAVIC_L5_ENA            true"
+};
+const int signals_l1l2l5l6_size = sizeof(signals_l1l2l5l6) / sizeof(signals_l1l2l5l6[0]);

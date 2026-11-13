@@ -171,6 +171,33 @@ static void test_unsupported_bands_rejected(void)
 
     CHECK(get_default_value_from_config(&nkv, 2, 20, GNSS_BAND_L1) == NULL);
     CHECK(get_default_value_from_config(&nkv, 2, 20, GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5) == NULL);
+    CHECK(get_default_value_from_config(&nkv, 2, 20, GNSS_BAND_L1 | GNSS_BAND_L6) == NULL);
+}
+
+static void test_x20t_config(void)
+{
+    static const struct expected_value signals_x20t[] = {
+        {"CFG-SIGNAL-GPS_ENA", 1},       {"CFG-SIGNAL-GPS_L1CA_ENA", 1},  {"CFG-SIGNAL-GPS_L2C_ENA", 1},
+        {"CFG-SIGNAL-GPS_L5_ENA", 1},    {"CFG-SIGNAL-SBAS_ENA", 1},      {"CFG-SIGNAL-SBAS_L1CA_ENA", 0},
+        {"CFG-SIGNAL-GAL_ENA", 1},       {"CFG-SIGNAL-GAL_E1_ENA", 1},    {"CFG-SIGNAL-GAL_E5A_ENA", 1},
+        {"CFG-SIGNAL-GAL_E6_ENA", 1},    {"CFG-SIGNAL-BDS_ENA", 1},       {"CFG-SIGNAL-BDS_B1_ENA", 1},
+        {"CFG-SIGNAL-BDS_B1C_ENA", 0},   {"CFG-SIGNAL-BDS_B2A_ENA", 1},   {"CFG-SIGNAL-BDS_B3_ENA", 1},
+        {"CFG-SIGNAL-QZSS_ENA", 1},      {"CFG-SIGNAL-QZSS_L1CA_ENA", 1}, {"CFG-SIGNAL-QZSS_L2C_ENA", 1},
+        {"CFG-SIGNAL-QZSS_L5_ENA", 1},   {"CFG-SIGNAL-GLO_ENA", 1},       {"CFG-SIGNAL-GLO_L1_ENA", 1},
+        {"CFG-SIGNAL-GLO_L2_ENA", 1},    {"CFG-SIGNAL-NAVIC_ENA", 1},     {"CFG-SIGNAL-NAVIC_L5_ENA", 1},
+        {NULL, 0},
+    };
+    const int bands = GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5 | GNSS_BAND_L6;
+    int       nkv   = 0;
+    UBLOXCFG_KEYVAL_t* kv = get_default_value_from_config(&nkv, -1, -1, bands);
+
+    CHECK(kv != NULL);
+    check_signals(kv, nkv, signals_x20t);
+    uint64_t hash = config_hash(kv, nkv);
+    printf("ZED-X20T: nkv=%d hash=0x%016llx\n", nkv, (unsigned long long)hash);
+    CHECK(nkv == 611);
+    CHECK(hash == 0xc24d091eebf00758ULL);
+    free(kv);
 }
 
 static void test_receiver_bands(void)
@@ -190,6 +217,15 @@ static void test_receiver_bands(void)
         {.id = UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID, .val.L = false},
         {.id = UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, .val.L = false},
     };
+    static const UBLOXCFG_KEYVAL_t with_e6[] = {
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID, .val.L = true},
+        {.id = UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID, .val.L = false},
+        {.id = UBLOXCFG_CFG_SIGNAL_GAL_E6_ENA_ID, .val.L = true},
+    };
+    static const UBLOXCFG_KEYVAL_t e6_off[] = {
+        {.id = UBLOXCFG_CFG_SIGNAL_GAL_E6_ENA_ID, .val.L = false},
+    };
+    const int all = GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5 | GNSS_BAND_L6;
 
     CHECK(gnss_receiver_bands(NULL, -1) == (GNSS_BAND_L1 | GNSS_BAND_L2));
     CHECK(gnss_receiver_bands(NULL, 0) == (GNSS_BAND_L1 | GNSS_BAND_L2));
@@ -197,6 +233,8 @@ static void test_receiver_bands(void)
     CHECK(gnss_receiver_bands(l2c_on_with_l5, 2) == (GNSS_BAND_L1 | GNSS_BAND_L2));
     CHECK(gnss_receiver_bands(l2c_off_without_l5, 1) == (GNSS_BAND_L1 | GNSS_BAND_L2));
     CHECK(gnss_receiver_bands(f9t_10b, 2) == (GNSS_BAND_L1 | GNSS_BAND_L5));
+    CHECK(gnss_receiver_bands(with_e6, 3) == all);
+    CHECK(gnss_receiver_bands(e6_off, 1) == all);
 }
 
 int main(void)
@@ -204,6 +242,7 @@ int main(void)
     log_set_level(LOG_FATAL);
     test_fleet_configs_unchanged();
     test_unsupported_bands_rejected();
+    test_x20t_config();
     test_receiver_bands();
     return 0;
 }

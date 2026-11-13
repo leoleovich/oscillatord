@@ -83,19 +83,24 @@ bool check_gnss_config_in_ram(RX_t *rx, UBLOXCFG_KEYVAL_t *allKvCfg, int nAllKvC
     return receiverconfigured;
 }
 
-/* F9T-10B: knows GPS L5 and does not track GPS L2C by factory default */
+/* ZED-X20T: knows Galileo E6. F9T-10B: knows GPS L5 and does not track GPS L2C by factory default */
 int gnss_receiver_bands(const UBLOXCFG_KEYVAL_t *defaults, int nDefaults)
 {
     bool has_l5 = false;
+    bool has_l6 = false;
     bool l2c_default = true;
 
     for (int i = 0; i < nDefaults; i++)
     {
         if (defaults[i].id == UBLOXCFG_CFG_SIGNAL_GPS_L5_ENA_ID)
             has_l5 = true;
+        else if (defaults[i].id == UBLOXCFG_CFG_SIGNAL_GAL_E6_ENA_ID)
+            has_l6 = true;
         else if (defaults[i].id == UBLOXCFG_CFG_SIGNAL_GPS_L2C_ENA_ID)
             l2c_default = defaults[i].val.L;
     }
+    if (has_l6)
+        return GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5 | GNSS_BAND_L6;
     if (has_l5 && !l2c_default)
         return GNSS_BAND_L1 | GNSS_BAND_L5;
     return GNSS_BAND_L1 | GNSS_BAND_L2;
@@ -151,6 +156,10 @@ UBLOXCFG_KEYVAL_t *get_default_value_from_config(int *nKv, int major, int minor,
 	case GNSS_BAND_L1 | GNSS_BAND_L5:
 		signals = signals_l1l5;
 		nSignals = signals_l1l5_size;
+		break;
+	case GNSS_BAND_L1 | GNSS_BAND_L2 | GNSS_BAND_L5 | GNSS_BAND_L6:
+		signals = signals_l1l2l5l6;
+		nSignals = signals_l1l2l5l6_size;
 		break;
 	default:
 		log_error("No receiver configuration for signal bands 0x%x", bands);

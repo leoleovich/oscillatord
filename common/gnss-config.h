@@ -8,6 +8,7 @@
 #define GNSS_BAND_L1  (1 << 0)
 #define GNSS_BAND_L2  (1 << 1)
 #define GNSS_BAND_L5  (1 << 2)
+#define GNSS_BAND_L6  (1 << 3)
 
 bool check_gnss_config_in_ram(RX_t *rx, UBLOXCFG_KEYVAL_t *allKvCfg, int nAllKvCfg);
 int gnss_receiver_bands(const UBLOXCFG_KEYVAL_t *defaults, int nDefaults);
